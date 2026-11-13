@@ -5,7 +5,7 @@ LearnHarness can use an externally installed **Claude Code CLI** as a model prov
 ## Set up
 
 1. [Install and authenticate Claude Code](https://code.claude.com/docs/en/setup) outside LearnHarness, on **the machine running the LearnHarness server**, under its OS user. No always-running CLI process is needed.
-2. Make the executable discoverable in that server's `PATH` or a common user/native installation location. On Windows, a directly runnable `claude.exe` is required; `claude.cmd` alone does not qualify. Desktop launch environments may differ from terminals.
+2. Make the executable discoverable in that server's `PATH` or a common user/native installation location. On Windows, a directly runnable `claude.exe` is required; `claude.cmd` alone does not qualify. Desktop launch environments may differ from terminals. Besides `PATH`, the server checks common install folders, including Nix profiles and (in this fork) mise's shims folder (`$MISE_DATA_DIR/shims`, else `$XDG_DATA_HOME/mise/shims`, else `~/.local/share/mise/shims`), so a mise-installed CLI is found even when the desktop launcher's environment has no mise activation.
 3. Enable **Settings → Providers → External CLI → Claude Code**. This app-wide opt-in is **off by default**. Use **Check again** to refresh installation status.
 4. Select a Claude Code model: `opus`, `sonnet`, or `haiku`. These are CLI aliases, not pinned underlying versions.
 

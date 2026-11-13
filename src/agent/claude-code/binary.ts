@@ -54,6 +54,10 @@ function getPosixSearchSpec(env: BinaryLookup["env"], homeDir: string): SearchSp
 			...(env.USER ? [paths.join("/etc/profiles/per-user", env.USER, "bin")] : []),
 			paths.join(homeDir, ".nix-profile", "bin"),
 			"/run/current-system/sw/bin",
+			// Fork: mise-managed tools, likewise only on PATH after shell
+			// activation. The shim links to the mise binary and dispatches on
+			// its name, so it is used as-is. Data dir follows mise's own rule.
+			paths.join(env.MISE_DATA_DIR || paths.join(env.XDG_DATA_HOME || paths.join(homeDir, ".local", "share"), "mise"), "shims"),
 		],
 	};
 }

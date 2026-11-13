@@ -45,6 +45,30 @@ test("skips the per-user Nix profile when USER is unset", () => {
 	assert.equal(resolveWith(["/etc/profiles/per-user/u/bin/claude"], { PATH: "" }), null);
 });
 
+// Fork: mise-installed CLIs are only on PATH after shell activation, so a
+// desktop launch needs mise's shims folder (docs/fork/README.md).
+test("finds a mise shim when a desktop launch has no activated PATH", () => {
+	assert.equal(resolveWith([`${HOME}/.local/share/mise/shims/claude`], { PATH: "/run/current-system/sw/bin" }), `${HOME}/.local/share/mise/shims/claude`);
+});
+
+test("checks mise shims after every other known dir", () => {
+	const shim = `${HOME}/.local/share/mise/shims/claude`;
+	assert.equal(resolveWith([shim, "/run/current-system/sw/bin/claude"], { PATH: "" }), "/run/current-system/sw/bin/claude");
+	assert.equal(resolveWith([shim, `${HOME}/.local/bin/claude`], { PATH: "" }), `${HOME}/.local/bin/claude`);
+});
+
+test("mise shims follow MISE_DATA_DIR, then XDG_DATA_HOME, like mise itself", () => {
+	const executables = ["/opt/mise/shims/claude", "/xdg/mise/shims/claude", `${HOME}/.local/share/mise/shims/claude`];
+	assert.equal(resolveWith(executables, { PATH: "", MISE_DATA_DIR: "/opt/mise", XDG_DATA_HOME: "/xdg" }), "/opt/mise/shims/claude");
+	assert.equal(resolveWith(executables, { PATH: "", XDG_DATA_HOME: "/xdg" }), "/xdg/mise/shims/claude");
+	assert.equal(resolveWith(executables, { PATH: "", MISE_DATA_DIR: "", XDG_DATA_HOME: "" }), `${HOME}/.local/share/mise/shims/claude`);
+});
+
+test("windows lookup does not search mise shims", () => {
+	const winHome = "C:\\Users\\u";
+	assert.equal(resolveWith([`${winHome}\\.local\\share\\mise\\shims\\claude.exe`], { PATH: "" }, "win32", winHome), null);
+});
+
 test("npm global bin follows npm_config_prefix when set", () => {
 	const binary = resolveWith(["/opt/npm/bin/claude", `${HOME}/.npm-global/bin/claude`], { npm_config_prefix: "/opt/npm" });
 	assert.equal(binary, "/opt/npm/bin/claude");
