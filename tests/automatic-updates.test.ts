@@ -13,7 +13,14 @@ const mainFile = fileURLToPath(new URL("../electron/main.cjs", import.meta.url))
 const mainSource = readFileSync(mainFile, "utf8");
 const mainRequire = createRequire(mainFile);
 
-function fixture({ packaged = true, updaterMissing = false } = {}) {
+// Fork: the shipped shell has the updater switched off (see the "fork"
+// suite below). Upstream's cases still cover the kept updater code by
+// evaluating the same source with only that switch flipped on.
+const UPDATER_SWITCH = "const UPDATER_ENABLED = false;";
+assert.equal(mainSource.split(UPDATER_SWITCH).length, 2, "main.cjs has exactly one updater switch");
+
+function fixture({ packaged = true, updaterMissing = false, updaterEnabled = true } = {}) {
+	let updaterRequired = false;
 	let settings: string | Error = JSON.stringify({ version: 1, general: { autoUpdate: true } });
 	const settingsReads: string[] = [];
 	const order: string[] = [];
@@ -92,6 +99,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			// updater shell fixture entirely offline and already ready.
 			if (id === "./dev-server-readiness.cjs") return { waitForDevServer: async () => {} };
 			if (id === "electron-updater") {
+				updaterRequired = true;
 				if (updaterMissing) throw new Error("missing updater");
 				return { autoUpdater: updater };
 			}
@@ -110,10 +118,13 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		setTimeout() {},
 		fixtureChild: { kill: (signal: string) => order.push(signal) },
 	});
-	runInContext(mainSource, context, { filename: mainFile });
+	const source = updaterEnabled ? mainSource.replace(UPDATER_SWITCH, "const UPDATER_ENABLED = true;") : mainSource;
+	runInContext(source, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
 	return {
 		run, updater, windows, intervals, handles, settingsReads, order, app,
+		updaterRequired: () => updaterRequired,
+		menuLabels: () => menu.flatMap(entry => entry.submenu ?? []).map(item => item.label).filter(Boolean),
 		setSettings: (value: unknown) => { settings = JSON.stringify(value); },
 		setSettingsFailure: (value: string | Error) => { settings = value; },
 		setEnumerationFailure: (value: boolean) => { enumerationFails = value; },
@@ -300,5 +311,29 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
 		f.windows[0]!.webContents.fails = true; f.windows[0]!.webContents.loading = false;
 		f.menuCheck(); assert.equal(f.updater.checks, 1);
+	});
+});
+
+describe("fork: updater off", () => {
+	it("a packaged boot never loads the updater, checks, or schedules checks", async () => {
+		const f = fixture({ updaterEnabled: false });
+		f.setSettings({ general: { autoUpdate: true } });
+		await f.run("main()");
+		assert.equal(f.updaterRequired(), false);
+		assert.equal(f.updater.checks, 0);
+		assert.equal(f.intervals.length, 0);
+		assert.equal(f.state().status, "disabled");
+	});
+
+	it("Settings' manual check does nothing and the menu has no update item", async () => {
+		const f = fixture({ updaterEnabled: false });
+		await f.run("main()");
+		const sender = f.windows[0]!.webContents;
+		f.handles.get("lh:update:check")!({ sender, senderFrame: sender.mainFrame });
+		await Promise.resolve();
+		assert.equal(f.updater.checks, 0);
+		assert.equal((f.handles.get("lh:update:get")!({ sender, senderFrame: sender.mainFrame }) as { status: string }).status, "disabled");
+		assert.ok(f.menuLabels().length > 0, "the menu was built");
+		assert.ok(!f.menuLabels().includes("Check for Updates…"));
 	});
 });

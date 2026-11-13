@@ -484,6 +484,11 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  * inside the .app bundle Squirrel is about to replace (extraResources),
  * and before-quit alone would race the swap. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Fork: the updater stays off (docs/fork/README.md). Its feed is upstream's
+// GitHub releases, which would replace the fork with upstream builds; the
+// fork updates through its Nix package. Upstream's updater code below is
+// kept, unreached, so upstream merges stay small.
+const UPDATER_ENABLED = false;
 let autoUpdater = null; // electron-updater's, packaged builds only
 // Observational only: this snapshot NEVER gates a check, download or install.
 // The revision lets late subscribers reject an older in-flight IPC snapshot.
@@ -550,6 +555,11 @@ function installUpdateNow() {
 }
 
 function setupAutoUpdater() {
+	if (!UPDATER_ENABLED) {
+		log("auto-update: off in the fork — updates come from its Nix package");
+		reportUpdateStatus("disabled");
+		return;
+	}
 	if (!app.isPackaged) {
 		log("auto-update: dev build — updater disabled");
 		reportUpdateStatus("disabled");
@@ -634,7 +644,8 @@ function installMenu() {
 			submenu: [
 				{ role: "about" },
 				// Manual checks report their result in Settings → General.
-				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
+				// Fork: no item while the updater is off.
+				...(UPDATER_ENABLED ? [{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() }] : []),
 				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },
