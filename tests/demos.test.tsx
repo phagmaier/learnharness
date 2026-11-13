@@ -195,6 +195,9 @@ function noChromeHeadless(): HeadlessApi {
 		renderPdfPages: async () => {
 			throw new Error("should not render");
 		},
+		renderMermaid: async () => {
+			throw new Error("unexpected mermaid render");
+		},
 	};
 }
 

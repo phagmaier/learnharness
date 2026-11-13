@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { standardFontsDir } from "./pdf-ops";
 import { svgImageSource } from "../../../lib/svg-image-source";
+import { PATHS } from "../../../config.ts";
 
 /**
  * Verification engines for sub-agents: demos use the app's own Electron
@@ -58,6 +59,20 @@ export interface RenderedPdfPage {
 	png: Buffer;
 }
 
+export interface RenderMermaidOptions {
+	/** Font stack for diagram text; match the page the SVGs go into. */
+	fontFamily?: string;
+	/** `@font-face` rules loaded before rendering, so labels are measured in the page's own font. */
+	fontCss?: string;
+}
+
+export type MermaidDiagramResult = { ok: true; svg: string } | { ok: false; error: string };
+
+/** Never a thrown error: a helper that can't start is `unavailable`. */
+export type MermaidRenderResult =
+	| { status: "rendered"; diagrams: MermaidDiagramResult[] }
+	| { status: "unavailable"; reason: string };
+
 export interface HeadlessApi {
 	/** True when a browser helper or Chrome is resolvable (cheap, no launch). */
 	available(): boolean;
@@ -69,6 +84,8 @@ export interface HeadlessApi {
 	renderSvg(svg: string, opts?: RenderSvgOptions): Promise<Buffer>;
 	/** Render PDF pages to PNGs natively (pdfjs + Skia) for the pdf-reader. */
 	renderPdfPages(pdfPath: string, pages: number[], opts?: RenderPdfOptions): Promise<RenderedPdfPage[]>;
+	/** Render Mermaid sources to SVGs in one isolated page (notes and exports). */
+	renderMermaid(sources: string[], opts?: RenderMermaidOptions): Promise<MermaidRenderResult>;
 }
 
 /** Test seam — undefined in production. */
@@ -406,6 +423,84 @@ export async function runDemoOnPage(page: import("puppeteer-core").Page, html: s
 	};
 }
 
+// ─── Mermaid for documents ───────────────────────────────────────────────────
+// Notes and exports are final files: their diagrams are drawn once, here,
+// and stored as SVG. Mermaid needs a real layout engine, so it runs in the
+// same isolated page as demos, with the app's own copy of mermaid.min.js
+// injected inline (no network). Settings follow the chat's light mode:
+// default theme, strict security, the chat's 16px base size
+// (components/mermaid-render.ts MERMAID_FONT_SIZE).
+
+const MERMAID_SCRIPT = path.join(PATHS.root, "node_modules", "mermaid", "dist", "mermaid.min.js");
+const MERMAID_FONT_SIZE = 16;
+let mermaidScript: Promise<string> | undefined;
+
+function readMermaidScript(): Promise<string> {
+	mermaidScript ??= fs.promises.readFile(MERMAID_SCRIPT, "utf8").catch((error: unknown) => {
+		mermaidScript = undefined;
+		throw error;
+	});
+	return mermaidScript;
+}
+
+async function renderMermaid(sources: string[], opts: RenderMermaidOptions = {}): Promise<MermaidRenderResult> {
+	if (sources.length === 0) return { status: "rendered", diagrams: [] };
+	if (!realHeadless.available()) return { status: "unavailable", reason: NO_CHROME_MESSAGE };
+	try {
+		const script = await readMermaidScript();
+		const config = {
+			startOnLoad: false,
+			theme: "default",
+			securityLevel: "strict",
+			fontSize: MERMAID_FONT_SIZE,
+			fontFamily: opts.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
+		};
+		const prefix = `lh-mermaid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-`;
+		const shell = `<!doctype html><html><head><meta charset="utf-8"><style>${opts.fontCss ?? ""}</style></head><body></body></html>`;
+		const diagrams = await withBrowserPage(async (page) => {
+			const cleanup = await loadIsolatedPage(page, shell);
+			try {
+				await page.addScriptTag({ content: script });
+				return await page.evaluate(renderMermaidInPage, sources, config, prefix);
+			} finally {
+				await cleanup();
+			}
+		});
+		return { status: "rendered", diagrams };
+	} catch (error) {
+		return { status: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/** Runs inside the isolated page (serialized by puppeteer: self-contained). */
+async function renderMermaidInPage(
+	sources: string[],
+	config: Record<string, unknown>,
+	prefix: string,
+): Promise<MermaidDiagramResult[]> {
+	type MermaidApi = {
+		initialize(config: Record<string, unknown>): void;
+		render(id: string, source: string): Promise<{ svg: string }>;
+	};
+	const mermaid = (globalThis as unknown as { mermaid: MermaidApi }).mermaid;
+	await Promise.all(Array.from(document.fonts, (face) => face.load().catch(() => undefined)));
+	mermaid.initialize(config);
+	const results: MermaidDiagramResult[] = [];
+	for (let i = 0; i < sources.length; i++) {
+		const id = prefix + i;
+		try {
+			const { svg } = await mermaid.render(id, sources[i]!);
+			results.push({ ok: true, svg });
+		} catch (error) {
+			results.push({ ok: false, error: error instanceof Error ? error.message : String(error) });
+		} finally {
+			document.getElementById(id)?.remove();
+			document.getElementById(`d${id}`)?.remove();
+		}
+	}
+	return results;
+}
+
 // ─── SVG rasterization ───────────────────────────────────────────────────────
 
 function svgViewport(svg: string, opts: RenderSvgOptions): { width: number; height: number } {
@@ -627,4 +722,5 @@ export const realHeadless: HeadlessApi = {
 	runDemo,
 	renderSvg,
 	renderPdfPages,
+	renderMermaid,
 };

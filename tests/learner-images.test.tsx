@@ -174,6 +174,9 @@ function fakeHeadless(): HeadlessApi & { svgCalls: string[] } {
 		renderPdfPages: async () => {
 			throw new Error("unexpected pdf render");
 		},
+		renderMermaid: async () => {
+			throw new Error("unexpected mermaid render");
+		},
 	};
 }
 

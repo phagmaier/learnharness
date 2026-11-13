@@ -68,6 +68,7 @@ const headless: HeadlessApi = {
 	available: () => true, unavailableReason: () => null,
 	renderSvg: async () => { throw new Error("unexpected render"); },
 	renderPdfPages: async () => { throw new Error("unexpected render"); },
+	renderMermaid: async () => { throw new Error("unexpected mermaid render"); },
 	runDemo: async () => { throw new Error("unexpected browser"); },
 };
 

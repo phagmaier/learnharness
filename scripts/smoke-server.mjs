@@ -82,6 +82,25 @@ function get(url) {
 	});
 }
 
+/** Notes and exports (plan 03) read these from disk at runtime; no HTTP probe
+ *  touches them until a note is written, so check the traced payload here. */
+function verifyDocumentAssets(standalone) {
+	const required = [
+		"node_modules/katex/dist/katex.min.css",
+		"node_modules/mermaid/dist/mermaid.min.js",
+		"src/agent/document/fonts/source-sans-3-latin.woff2",
+		"src/agent/document/fonts/cmu-serif-bold.woff2",
+		"src/agent/document/fonts/jetbrains-mono-latin.woff2",
+	];
+	const missing = required.filter((file) => !fs.existsSync(path.join(standalone, file)));
+	const katexFonts = fs.existsSync(path.join(standalone, "node_modules/katex/dist/fonts"))
+		? fs.readdirSync(path.join(standalone, "node_modules/katex/dist/fonts")).filter((file) => file.endsWith(".woff2"))
+		: [];
+	if (katexFonts.length < 20) missing.push(`node_modules/katex/dist/fonts/*.woff2 (found ${katexFonts.length}, expected 20)`);
+	if (missing.length > 0) throw new Error(`document assets missing from the standalone payload: ${missing.join(", ")}`);
+	console.log(`[smoke-server] document assets present (${required.length} files + ${katexFonts.length} KaTeX fonts)`);
+}
+
 async function main() {
 	// Optional source-free proof: run a copy outside the checkout, so missing
 	// dependencies cannot resolve upward into development node_modules.
@@ -100,6 +119,7 @@ async function main() {
 	verifyProviderRuntime(standalone, RUNTIME);
 	// A plain GET without Accept-Encoding never exercises gzip backpressure.
 	verifyCompressionRuntime(standalone, RUNTIME);
+	verifyDocumentAssets(standalone);
 	const port = await freePort();
 	const url = `http://127.0.0.1:${port}`;
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-smoke-"));

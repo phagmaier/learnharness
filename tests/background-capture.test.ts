@@ -39,6 +39,7 @@ const { createCanvas } = await import("@napi-rs/canvas");
 const fixturePng = createCanvas(8, 8).toBuffer("image/png");
 const headless = {
 	available: () => true, unavailableReason: () => null,
+	renderMermaid: async () => { throw new Error("unexpected mermaid render"); },
 	runDemo: async () => { throw new Error("Unexpected browser operation"); },
 	renderSvg: async () => fixturePng,
 	renderPdfPages: async (_file: string, pages: number[]) => pages.map((page) => ({ page, png: fixturePng })),

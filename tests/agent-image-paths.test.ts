@@ -112,6 +112,7 @@ function fakeHeadless(rendered: Buffer | ((page: number) => Buffer)) {
 	const headless: HeadlessApi = {
 		available: () => true,
 		unavailableReason: () => null,
+		renderMermaid: async () => { throw new Error("unexpected mermaid render"); },
 		runDemo: async () => { throw new Error("unexpected browser execution"); },
 		renderSvg: async (svg) => {
 			svgCalls.push(svg);

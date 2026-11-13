@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts.
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Item 1 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -237,6 +237,37 @@ The user message holds the session title, the session text in a `<session>` bloc
 - **After items 1 and 3:** also `npm run build` and `scripts/smoke-server.mjs`.
 - **Completion report per item:** what changed, checks and results, human checks still owed, and agent-selected choices.
 - **Safety:** nothing reads or writes `~/.config/LearnHarness` or `~/.config/LearnHarness-Fork`. Manual runs use a scratch profile. Tests use fakes and fixtures only.
+
+## Outcome
+
+### Item 1 (2026-11-13)
+
+- **Checkpoint, decided (human):** the look was approved as shown: the note, the export blocks, and their wording. That covers the callout labels "Definition", "Example", "Misconception", "Key idea"; the failure boxes "This formula couldn't be rendered." and "This diagram couldn't be rendered."; the notice "Diagram not drawn: the diagram renderer wasn't available when this page was made."; and the export labels "You", "Check question" with a result badge, "your answer" / "correct answer", "Interactive demo", "Side question on “…”", "Research brief · …", and "Plan" under the plan map. The samples used the golden teach fixture's real figure, demo, plan, quiz, and research brief, with Mermaid drawn by the app's own Electron helper.
+- **Fonts, decided (human):** files embed the app's faces. Source Sans 3 (Latin) is on every page, about 38 KiB. CMU Serif Bold, re-encoded to WOFF2 without subsetting so its OFL reserved name stays valid, is on every page, about 111 KiB. JetBrains Mono (Latin) is only on pages with code, about 53 KiB. A file grows by 148 KiB, or 201 KiB with code. The options shown were the shipped TTF (289 KiB), a renamed Latin subset of CMU (38 KiB), Source Sans 3 Black titles, and system fonts. The files, their licenses, and their sources are in `src/agent/document/fonts/`. For scale, KaTeX adds about 360 KiB to any page with math. The measured sample note was 621 KiB embedded and 420 KiB with system fonts.
+- **Built:**
+  - `src/core/document/`: the template, stylesheet, math, body preparation, and figures.
+  - `src/agent/document/`: the asset loader and `renderDocumentFile`.
+  - `renderMermaid` on the browser helper.
+  - Trace includes for KaTeX's CSS and fonts, `mermaid.min.js`, and the document fonts.
+- **Agent-selected:**
+  - Pages with no script and no frame carry a Content-Security-Policy meta (`default-src 'none'`, inline styles, `data:` images and fonts). They stay inert even when opened from disk.
+  - Rendered KaTeX and Mermaid markup is spliced in by token after one `linkedom` parse, so it never round-trips through the parser.
+  - Adjacent text nodes are merged first, because the parser splits text at entities (`\(a &lt; b\)`). A test caught this.
+  - An unclosed `\(` or `\[` counts as a failed formula ("No closing \)").
+  - In-page `#` links stay in the page.
+  - Mermaid measures labels in the document's own embedded text font. A diagram keeps Mermaid's natural-size cap, so small diagrams are not stretched to the column.
+  - The export block styles (learner turns, question cards, plan, demo frame, side questions, briefs) are in the shared stylesheet, so item 2 only builds the markup.
+  - `scripts/smoke-server.mjs` now checks that the document assets are in the standalone payload.
+- **Checks:**
+  - Typecheck passed.
+  - Lint passed with the one inherited warning.
+  - Tests: the full run gave 5339 pass, 1 fail, 4 skipped. The failure was `tests/provider-tracing.test.ts`, which pins the include list; it was updated and passes on its own.
+  - `npm run build`, `scripts/build-server.mjs` and `scripts/smoke-server.mjs` passed. The smoke reported 5 document files and 20 KaTeX fonts in the payload.
+  - The real `renderMermaid` was exercised by the sample run, not by the suite (the suite never drives the live helper).
+- **Known limits:**
+  - An interactive demo frame prints only what fits on one page.
+  - Including only the KaTeX font families a page uses would roughly halve its 360 KiB. This is not planned.
+- **Found, inherited, not fixed:** `electron/main.cjs` sets the app's user-data folder before the `--browser-service` branch. A browser helper spawned in dev (demo checks, and now Mermaid) therefore keeps its Chromium profile in `~/.config/LearnHarness-Fork`. The agent's runs set `XDG_CONFIG_HOME` to a scratch folder.
 
 ## Not in this plan
 
