@@ -1,0 +1,6 @@
+# Runtime pins for this fork. CI (.github/workflows/ci.yml) uses Node 26.
+[tools]
+node = "26.13.0"
+
+[env]
+NEXT_TELEMETRY_DISABLED = "1"
