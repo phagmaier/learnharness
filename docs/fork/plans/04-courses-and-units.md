@@ -507,4 +507,30 @@ The propositions block is left out when the unit has none.
 
 ## Outcome
 
-*Recorded per item as the work lands.*
+### Item 1 (2026-11-13)
+
+- **Built:**
+  - Contracts in `src/core/contracts/course.ts`: the record, units, handoffs, proposals, the seven evidence event types, the chat's `course` back-pointer (added to `ChatRecord` and `ChatSummary`), and the sidebar's `CourseSummary`.
+  - Pure rules and texts in `src/core/course.ts`, exported through the core barrel: list validation, learner edits (`applyUnitEdit`), change lists (`applyCourseChanges`), transitive and unfinished prerequisites, the topic rule (`handoffTopics`), `handoffText`, `courseChangeLine`, and `progressMarkdown`.
+  - The store `src/store/courses.ts` at `data/courses/` (`PATHS.courses`): create, get, list, update, remove, with the version guard. Every write regenerates `progress.md`.
+  - The `courses-changed` server event.
+  - A golden course record under `tests/fixtures/golden-data/courses/`.
+- **Agent-selected:**
+  - **Ids:** unit ids are readable slugs from the setup key or title (`linear-maps`, then `linear-maps-2`), because agents name units by them. Course ids follow the chat pattern (`course_<time>_<random>`).
+  - **Learner edits:** the editor sends the whole list. Existing units are matched by id and keep their status, session and handoff; new units get fresh ids, and a new unit can build on another new one through a `new:<index>` placeholder.
+  - **Change semantics:** a dropped unit's dependants inherit its prerequisites, so handoffs keep flowing. A merged unit takes the place of the earliest merged unit, the union of their prerequisites, and their starting points joined; units that built on a merged unit build on the new one.
+  - **Topic rule details:** skipped checks are ignored. A right check with no recorded confidence (only possible in old records) is shaky. Unchecked topics remember whether their evidence was free-recall only, other ungraded answers, or nothing, and the writer's judgment line says "(judged from free-recall answers)", "(judged from ungraded answers)" or "(judged from the transcript)" accordingly.
+  - **Wording the plan didn't specify:**
+    - Topic reasons: "last check answered “don't know”" and "last check right, with no confidence recorded".
+    - A unit with no plan: "No plan topics were recorded."
+    - Change lines: "Insert at the start: <title>", "Move <n> to the start", and three-way merges as "Merge 2, 3 and 4 into: <title>".
+    - Validation problems, for example "Unit 1 (Vectors) builds on unit 2 (Maps), which comes after it. A unit can only build on earlier units." and "Unit 2 (Maps) has started, so it can't be dropped."
+  - **`progress.md`:** empty "Pending course changes" and "Handoffs" sections are left out. Each pending proposal is a bullet with its reason and nested change lines. Dates read "20 Nov 2026" in local time, pipes in table titles are escaped, and model-written observations appear only once the writer has finished.
+  - **Store:** a failed `progress.md` write is logged and never fails or undoes the record write. `list` reports unreadable course folders separately. Every update stamps `updatedAt`. `courses-changed` is emitted on every write and removal.
+  - **Plugin API reference:** regenerated (`docs/plugin-api/`). The chat record's `course` field shows as a supporting declaration and `courses-changed` joins the event list; no callable API was added.
+  - **Golden record:** no session can produce a course yet, so the record was written by the real store from a scripted record (topics computed by the real rule). The unit chat record follows once unit sessions exist (item 4).
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Full suite: 5,458 pass, 1 fail, 4 skipped. The failure was `tests/plugin-api-reference.test.ts`, which pins the generated reference; after regeneration it passes alone (4/4).
+  - New tests: `tests/courses.test.ts` (23), with every expected value worked by hand. They include the plan's proposed handoff text verbatim, rebuilt from evidence through the topic rule, and a hand-written `progress.md`. The golden course case in `tests/golden-fixtures.test.ts` also passes.
+- **Human checks owed:** none for this item (no UI).

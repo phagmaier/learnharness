@@ -40,6 +40,11 @@ export interface ServerEvents {
 	 *  stopped, deleted). Notify-then-fetch: open notes pages refetch
 	 *  GET /api/chats/:id/notes (fork plan 03). */
 	"notes-changed": { chatId: string };
+	/** A course record changed (created, units edited, a unit started or
+	 *  completed, a handoff or proposal settled, evidence recorded, deleted).
+	 *  Notify-then-fetch: open course views and the sidebar refetch
+	 *  (fork plan 04). */
+	"courses-changed": { courseId: string };
 	/** Plugin availability/lifecycle changed; refetch installed packages. */
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
@@ -63,6 +68,7 @@ export const SERVER_EVENT_TYPES = [
 	"compaction-changed",
 	"side-chats-changed",
 	"notes-changed",
+	"courses-changed",
 	"plugins-changed",
 	"plugin-message",
 ] as const satisfies readonly ServerEventType[];

@@ -1,0 +1,372 @@
+{
+	"id": "course_mvgold00_9f3a1c2e",
+	"title": "Linear algebra",
+	"goal": "Understand eigenvectors and diagonalization",
+	"createdAt": "2026-11-14T09:05:00.000Z",
+	"updatedAt": "2026-11-14T09:05:00.000Z",
+	"setupChatId": "chat_mvgold01_setup001",
+	"sourceFolderId": "folder_mvgold_course",
+	"units": [
+		{
+			"id": "vectors-and-span",
+			"title": "Vectors and span",
+			"goal": "Work with linear combinations, span, independence and bases.",
+			"startingPoint": "Knows vectors as arrows; span was new.",
+			"prerequisites": [],
+			"status": "completed",
+			"chatId": "chat_mvgold02_unit0001",
+			"goalReachedAt": "2026-11-14T09:40:00.000Z",
+			"completion": "confirmed",
+			"completedAt": "2026-11-14T09:41:00.000Z",
+			"handoff": {
+				"writtenAt": "2026-11-14T09:41:00.000Z",
+				"completion": "confirmed",
+				"topics": [
+					{
+						"nodeId": "linear-combination",
+						"title": "Linear combinations",
+						"status": "solid",
+						"reason": "last check right at 85% confidence"
+					},
+					{
+						"nodeId": "span",
+						"title": "Span",
+						"status": "shaky",
+						"reason": "last check right at 50% confidence"
+					},
+					{
+						"nodeId": "independence",
+						"title": "Linear independence",
+						"status": "unchecked",
+						"reason": "free-recall answers only"
+					},
+					{
+						"nodeId": "basis",
+						"title": "Basis",
+						"status": "shaky",
+						"reason": "last check answered “don't know”"
+					},
+					{
+						"nodeId": "dimension",
+						"title": "Dimension",
+						"status": "not-reached",
+						"reason": "not reached"
+					}
+				],
+				"observations": {
+					"judged": [
+						{
+							"nodeId": "independence",
+							"status": "solid",
+							"reason": "explained why three vectors in the plane are dependent"
+						}
+					],
+					"alsoShaky": [
+						"Basis: confuses a spanning set with a basis"
+					],
+					"misconceptionsRepaired": [
+						"thought span meant the sum of the vectors; fixed with the plane example"
+					],
+					"carriedForward": [
+						"Dimension was not reached"
+					]
+				},
+				"writer": {
+					"status": "ready",
+					"model": "test:strong-model",
+					"usage": {
+						"model": "test:strong-model",
+						"steps": [
+							{
+								"inputTokens": 1200,
+								"outputTokens": 300,
+								"cacheReadTokens": 0,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 0
+							}
+						]
+					}
+				}
+			}
+		},
+		{
+			"id": "linear-maps",
+			"title": "Linear maps",
+			"goal": "Represent linear maps as matrices and compose them.",
+			"startingPoint": "Has seen matrix multiplication as a rule only.",
+			"prerequisites": [
+				"vectors-and-span"
+			],
+			"status": "in-progress",
+			"chatId": "chat_mvgold03_unit0002"
+		},
+		{
+			"id": "determinants",
+			"title": "Determinants",
+			"goal": "Compute determinants and read them as volume scaling.",
+			"prerequisites": [
+				"linear-maps"
+			],
+			"status": "not-started"
+		},
+		{
+			"id": "eigenvectors",
+			"title": "Eigenvectors",
+			"goal": "Find eigenvectors and diagonalize a matrix.",
+			"startingPoint": "new",
+			"prerequisites": [
+				"linear-maps",
+				"determinants"
+			],
+			"status": "not-started"
+		}
+	],
+	"proposals": [
+		{
+			"id": "proposal_gold_1",
+			"chatId": "chat_mvgold02_unit0001",
+			"unitId": "vectors-and-span",
+			"toolCallId": "call_pc1",
+			"at": "2026-11-14T09:39:00.000Z",
+			"reason": "Eigenvalues need determinants first.",
+			"changes": [
+				{
+					"type": "insert",
+					"after": "linear-maps",
+					"title": "Determinants",
+					"goal": "Compute determinants and read them as volume scaling.",
+					"prerequisites": [
+						"linear-maps"
+					]
+				}
+			],
+			"status": "accepted",
+			"decidedAt": "2026-11-14T09:42:00.000Z"
+		},
+		{
+			"id": "proposal_gold_2",
+			"chatId": "chat_mvgold03_unit0002",
+			"unitId": "linear-maps",
+			"toolCallId": "call_pc2",
+			"at": "2026-11-14T09:50:00.000Z",
+			"reason": "His probe showed he already computes determinants.",
+			"changes": [
+				{
+					"type": "drop",
+					"unit": "determinants"
+				}
+			],
+			"status": "pending"
+		}
+	],
+	"evidence": [
+		{
+			"type": "answer",
+			"id": "chat_mvgold01_setup001:call_s1",
+			"at": "2026-11-14T09:01:00.000Z",
+			"chatId": "chat_mvgold01_setup001",
+			"phase": "setup",
+			"tool": "probe",
+			"result": "right"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold01_setup001:call_s2",
+			"at": "2026-11-14T09:02:00.000Z",
+			"chatId": "chat_mvgold01_setup001",
+			"phase": "setup",
+			"tool": "probe",
+			"result": "dontKnow"
+		},
+		{
+			"type": "unit-started",
+			"id": "unit-started:vectors-and-span:2026-11-14T09:09:00.000Z",
+			"at": "2026-11-14T09:09:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_p1",
+			"at": "2026-11-14T09:10:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "probe",
+			"tool": "probe",
+			"result": "wrong"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_p2",
+			"at": "2026-11-14T09:11:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "probe",
+			"tool": "recall",
+			"result": "ungraded"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q1",
+			"at": "2026-11-14T09:20:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "quiz",
+			"questionType": "predict",
+			"nodeId": "linear-combination",
+			"nodeTitle": "Linear combinations",
+			"result": "wrong",
+			"confidence": 60
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q2",
+			"at": "2026-11-14T09:21:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "quiz",
+			"questionType": "check",
+			"nodeId": "linear-combination",
+			"nodeTitle": "Linear combinations",
+			"result": "right",
+			"confidence": 85
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q3",
+			"at": "2026-11-14T09:25:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "quiz",
+			"questionType": "check",
+			"nodeId": "span",
+			"nodeTitle": "Span",
+			"result": "right",
+			"confidence": 50
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q4",
+			"at": "2026-11-14T09:30:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "quiz",
+			"questionType": "check",
+			"nodeId": "independence",
+			"nodeTitle": "Linear independence",
+			"result": "skipped"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q5",
+			"at": "2026-11-14T09:31:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "explain",
+			"nodeId": "independence",
+			"nodeTitle": "Linear independence",
+			"result": "ungraded"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q6",
+			"at": "2026-11-14T09:33:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "plugin:sketch",
+			"nodeId": "basis",
+			"nodeTitle": "Basis",
+			"result": "ungraded"
+		},
+		{
+			"type": "answer",
+			"id": "chat_mvgold02_unit0001:call_q7",
+			"at": "2026-11-14T09:34:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"phase": "teach",
+			"tool": "quiz",
+			"questionType": "check",
+			"nodeId": "basis",
+			"nodeTitle": "Basis",
+			"result": "dontKnow"
+		},
+		{
+			"type": "goal-reached",
+			"id": "chat_mvgold02_unit0001:call_goal",
+			"at": "2026-11-14T09:40:00.000Z",
+			"unitId": "vectors-and-span",
+			"chatId": "chat_mvgold02_unit0001",
+			"summary": "Span and bases are in place."
+		},
+		{
+			"type": "unit-completed",
+			"id": "unit-completed:vectors-and-span:2026-11-14T09:41:00.000Z",
+			"at": "2026-11-14T09:41:00.000Z",
+			"unitId": "vectors-and-span",
+			"completion": "confirmed"
+		},
+		{
+			"type": "revision",
+			"id": "revision:proposal_gold_1",
+			"at": "2026-11-14T09:42:00.000Z",
+			"source": "teacher",
+			"decision": "accepted",
+			"proposalId": "proposal_gold_1",
+			"changes": [
+				"Insert after 2: Determinants"
+			]
+		},
+		{
+			"type": "revision",
+			"id": "revision:learner:2026-11-14T09:43:00.000Z",
+			"at": "2026-11-14T09:43:00.000Z",
+			"source": "learner",
+			"decision": "accepted",
+			"changes": [
+				"Renamed 4: Eigenvalues → Eigenvectors"
+			]
+		},
+		{
+			"type": "unit-reopened",
+			"id": "unit-reopened:vectors-and-span:2026-11-14T09:44:00.000Z",
+			"at": "2026-11-14T09:44:00.000Z",
+			"unitId": "vectors-and-span"
+		},
+		{
+			"type": "unit-completed",
+			"id": "unit-completed:vectors-and-span:2026-11-14T09:45:00.000Z",
+			"at": "2026-11-14T09:45:00.000Z",
+			"unitId": "vectors-and-span",
+			"completion": "early"
+		},
+		{
+			"type": "practice",
+			"id": "chat_mvgold04_prac0001:call_pr1",
+			"at": "2026-11-14T09:47:00.000Z",
+			"practiceChatId": "chat_mvgold04_prac0001",
+			"unitId": "vectors-and-span",
+			"problemCallId": "call_pr1",
+			"outcome": "solvedWithHints",
+			"rung": 2,
+			"missClass": "conceptual",
+			"targets": [
+				"n_span01"
+			]
+		},
+		{
+			"type": "unit-started",
+			"id": "unit-started:linear-maps:2026-11-14T09:48:00.000Z",
+			"at": "2026-11-14T09:48:00.000Z",
+			"unitId": "linear-maps",
+			"chatId": "chat_mvgold03_unit0002"
+		}
+	],
+	"version": 1
+}

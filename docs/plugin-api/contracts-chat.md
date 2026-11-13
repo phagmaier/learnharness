@@ -163,11 +163,12 @@ export interface ChatRecord {
     extractions?: ExtractionRunUsage[];
     settings?: ChatSettings;
     sideChats?: SideChatThread[];
+    course?: ChatCourseLink;
     version?: number;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -183,6 +184,7 @@ export interface ChatRecord {
 - [extractions](#chatrecord-extractions)
 - [settings](#chatrecord-settings)
 - [sideChats](#chatrecord-sidechats)
+- [course](#chatrecord-course)
 - [version](#chatrecord-version)
 
 ### ChatRecord id
@@ -277,6 +279,15 @@ all threads; already-recorded teacher history is never rewritten.
 sideChats?: SideChatThread[];
 ```
 
+### ChatRecord course
+
+Fork plan 04: the session's place in a course (setup, unit, or a
+unit's practice). Additive: older builds ignore and keep it.
+
+```ts
+course?: ChatCourseLink;
+```
+
 ### ChatRecord version
 
 Schema version. Absence denotes version 1; writes stamp the current
@@ -367,10 +378,11 @@ export interface ChatSummary {
     pendingQuestion: boolean;
     pendingProblem: boolean;
     settings?: ChatSettings;
+    course?: ChatCourseLink;
 }
 ```
 
-**Related types:** [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [Phase3](phases.md#phase3).
+**Related types:** [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [Phase3](phases.md#phase3).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -384,6 +396,7 @@ export interface ChatSummary {
 - [pendingQuestion](#chatsummary-pendingquestion)
 - [pendingProblem](#chatsummary-pendingproblem)
 - [settings](#chatsummary-settings)
+- [course](#chatsummary-course)
 
 ### ChatSummary id
 
@@ -454,6 +467,14 @@ Saved per-session model/thinking choices included in the list payload.
 
 ```ts
 settings?: ChatSettings;
+```
+
+### ChatSummary course
+
+Fork plan 04: the session's course link, when it has one.
+
+```ts
+course?: ChatCourseLink;
 ```
 
 ## ExtractionRunUsage

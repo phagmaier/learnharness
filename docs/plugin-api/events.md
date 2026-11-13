@@ -65,6 +65,9 @@ export interface ServerEvents {
     "notes-changed": {
         chatId: string;
     };
+    "courses-changed": {
+        courseId: string;
+    };
     "plugins-changed": Record<string, never>;
     "plugin-message": {
         pluginId: string;
@@ -95,6 +98,8 @@ export interface ServerEvents {
 - ["side-chats-changed".chatId](#serverevents-side-chats-changedchatid)
 - ["notes-changed"](#serverevents-notes-changed)
 - ["notes-changed".chatId](#serverevents-notes-changedchatid)
+- ["courses-changed"](#serverevents-courses-changed)
+- ["courses-changed".courseId](#serverevents-courses-changedcourseid)
 - ["plugins-changed"](#serverevents-plugins-changed)
 - ["plugin-message"](#serverevents-plugin-message)
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
@@ -260,6 +265,25 @@ GET /api/chats/:id/notes (fork plan 03).
 
 ```ts
 chatId: string;
+```
+
+### ServerEvents "courses-changed"
+
+A course record changed (created, units edited, a unit started or
+completed, a handoff or proposal settled, evidence recorded, deleted).
+Notify-then-fetch: open course views and the sidebar refetch
+(fork plan 04).
+
+```ts
+"courses-changed": {
+    courseId: string;
+};
+```
+
+### ServerEvents "courses-changed".courseId
+
+```ts
+courseId: string;
 ```
 
 ### ServerEvents "plugins-changed"

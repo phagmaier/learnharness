@@ -35,6 +35,9 @@ export const PATHS = {
 	/** Study notes of standalone sessions (fork plan 03):
 	 * notes/<chatId>/notes.json selects each note's immutable HTML revision. */
 	notes: path.join(/* turbopackIgnore: true */ DATA_ROOT, "notes"),
+	/** Courses (fork plan 04): courses/<courseId>/ holds course.json,
+	 * the regenerated progress.md, and notes/<chatId>/ per unit session. */
+	courses: path.join(/* turbopackIgnore: true */ DATA_ROOT, "courses"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

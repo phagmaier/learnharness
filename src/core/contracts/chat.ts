@@ -10,6 +10,7 @@ import type { LhMessage } from "../native-messages.ts";
 import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
+import type { ChatCourseLink } from "./course.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -47,6 +48,9 @@ export interface ChatRecord {
 	 * shares one thread. Every main request appends new raw exchanges across
 	 * all threads; already-recorded teacher history is never rewritten. */
 	sideChats?: SideChatThread[];
+	/** Fork plan 04: the session's place in a course (setup, unit, or a
+	 * unit's practice). Additive: older builds ignore and keep it. */
+	course?: ChatCourseLink;
 	/** Schema version. Absence denotes version 1; writes stamp the current
 	 * supported version. Reads refuse records stamped newer than this build
 	 * so a downgraded app cannot rewrite an unsupported record. */
@@ -310,6 +314,8 @@ export interface ChatSummary {
 	pendingProblem: boolean;
 	/** Saved per-session model/thinking choices included in the list payload. */
 	settings?: ChatSettings;
+	/** Fork plan 04: the session's course link, when it has one. */
+	course?: ChatCourseLink;
 }
 
 /** Session-list row combining a saved summary with live server state.

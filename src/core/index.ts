@@ -16,6 +16,8 @@
  */
 
 export * from "./contracts.ts";
+// Fork plan 04: course rules and readable texts (pure, browser-safe).
+export * from "./course.ts";
 export { embedLearnerImage } from "./learner-image-svg.ts";
 export * from "./demo-bridge.ts";
 // Plan map geometry (shared by the chat's plan block and the export's plan

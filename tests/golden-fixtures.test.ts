@@ -40,6 +40,8 @@ const { graphStore } = await import("../src/store/graph.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
 const { listNotes } = await import("../src/server/notes.ts");
+const { courseStore } = await import("../src/store/courses.ts");
+const { handoffText, progressMarkdown } = await import("../src/core/course.ts");
 const { readRenderSettings } = await import("../src/store/render-settings.ts");
 const { getGraph, deriveView } = await import("../src/core/graph.ts");
 const { sanitizeRenderSettings } = await import("../src/core/render-settings.ts");
@@ -232,6 +234,27 @@ test("notes: the teach session's index reads through the notes service (fork pla
 	assert.equal(stopped!.status, "failed");
 	assert.equal(stopped!.stopped, true);
 	assert.equal(stopped!.interactive, true);
+});
+
+test("courses: the course record reads through the course store with every event type and a handoff (fork plan 04)", () => {
+	const { courses, unreadable } = courseStore.list();
+	assert.deepEqual(unreadable, []);
+	assert.equal(courses.length, 1);
+	const record = courseStore.get(courses[0]!.id)!;
+	assert.equal(record.version, 1, "the course record carries its version stamp");
+	const types = new Set(record.evidence.map((event) => event.type));
+	assert.deepEqual([...types].sort(), ["answer", "goal-reached", "practice", "revision", "unit-completed", "unit-reopened", "unit-started"], "every evidence type is fixture-d");
+	const results = new Set(record.evidence.flatMap((event) => event.type === "answer" ? [event.result] : []));
+	assert.deepEqual([...results].sort(), ["dontKnow", "right", "skipped", "ungraded", "wrong"], "every answer result is fixture-d");
+	const phases = new Set(record.evidence.flatMap((event) => event.type === "answer" ? [event.phase] : []));
+	assert.deepEqual([...phases].sort(), ["probe", "setup", "teach"]);
+	const statuses = new Set(record.proposals.map((proposal) => proposal.status));
+	assert.ok(statuses.has("pending") && statuses.has("accepted"));
+	const completed = record.units.find((unit) => unit.handoff)!;
+	assert.equal(completed.handoff!.writer.status, "ready");
+	assert.deepEqual(new Set(completed.handoff!.topics.map((topic) => topic.status)), new Set(["solid", "shaky", "unchecked", "not-reached"]));
+	assert.ok(handoffText(1, completed, completed.handoff!).includes("Teacher observations (model-written):"));
+	assert.ok(progressMarkdown(record).startsWith(`# ${record.title}\n`));
 });
 
 // ── read-only: readers never write ──────────────────────────────────────────

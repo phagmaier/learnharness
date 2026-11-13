@@ -40,6 +40,14 @@ core tool surface must appear in real data here.
   `htmlRevision` selects that immutable publication. Legacy v1 HTML reads
   and publication upgrades are covered in `tests/notes.test.ts`.
 
+- `courses/course_mvgold00_9f3a1c2e/` — the fork's course record (plan 04,
+  version 1) with its regenerated `progress.md`: four units in every status
+  but one completed unit's handoff (all four topic statuses, model-written
+  observations), an accepted and a pending proposal, and every evidence type
+  and answer result. Written by the real course store from a scripted record
+  (the handoff topics computed by the real topic rule from the fixture's own
+  answers), since no session produced it.
+
 ## Regenerating / extending
 
 Run the app (`npm run dev`), exercise the feature against `data/`, then copy
