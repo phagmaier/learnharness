@@ -1,5 +1,6 @@
 /** Platform window chrome + packaging policy, without launching Electron. */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
@@ -288,8 +289,51 @@ describe("desktop packaging policy", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
-		assert.equal(pkg.homepage, "https://github.com/amosblomqvist/learnharness");
-		assert.equal(pkg.desktopName, "learnharness.desktop");
+		assert.equal(pkg.homepage, "https://github.com/phagmaier/learnharness");
+		assert.equal(pkg.desktopName, "learnharness-fork.desktop");
+	});
+
+	it("fork: installs beside upstream under its own identity", () => {
+		assert.equal(config.appId, "com.learnharness.fork");
+		assert.equal(config.productName, "LearnHarness Fork");
+		assert.equal(config.linux.executableName, "learnharness-fork");
+		assert.equal(config.linux.artifactName, "LearnHarness-Fork-${version}-${arch}.${ext}");
+	});
+
+	it("fork: the shown version is the numeric upstream base plus the fork counter", () => {
+		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+		// Plugin manifests are checked against this; it must stay x.y.z.
+		assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
+		assert.ok(Number.isInteger(pkg.forkRelease) && pkg.forkRelease >= 1);
+		const printed = execFileSync(process.execPath, [fileURLToPath(new URL("../scripts/fork-version.mjs", import.meta.url))], { encoding: "utf8" }).trim();
+		assert.equal(printed, `${pkg.version}-fork.${pkg.forkRelease}`);
+	});
+});
+
+describe("fork user data folder", () => {
+	function userDataPaths(env: Record<string, string>) {
+		const paths: Record<string, string> = { appData: "/home/learner/.config" };
+		const names: string[] = [];
+		const app = {
+			setName(name: string) { names.push(name); },
+			getPath: (name: string) => paths[name] ?? `${paths.appData}/electron-default`,
+			setPath(name: string, value: string) { paths[name] = value; },
+			requestSingleInstanceLock: () => false, quit() {},
+		};
+		runInNewContext(mainSource, {
+			require: (id: string) => id === "electron" ? { app } : mainRequire(id),
+			process: { platform: "linux", argv: [], env, on() {} },
+			__dirname: dirname(mainFile),
+		}, { filename: mainFile });
+		return { names, userData: paths.userData };
+	}
+
+	it("keeps all state in LearnHarness-Fork, never upstream's LearnHarness", () => {
+		assert.deepEqual(userDataPaths({}), { names: ["LearnHarness Fork"], userData: "/home/learner/.config/LearnHarness-Fork" });
+	});
+
+	it("gives the development shell its own -dev folder", () => {
+		assert.equal(userDataPaths({ LH_DEV_URL: "http://localhost:3000" }).userData, "/home/learner/.config/LearnHarness-Fork-dev");
 	});
 });
 

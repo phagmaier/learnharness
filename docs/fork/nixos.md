@@ -42,17 +42,18 @@ nix develop -c env NODE_ENV=test ELECTRON_RUN_AS_NODE=1 \
 
 If Electron starts failing with a missing `lib*.so`, add the providing package to `electronLibs` in `flake.nix`. Note that `ldd` ignores nix-ld and reports every library as missing even when it loads; test by running the binary.
 
-## Installed LearnHarness vs this checkout
+## Installed apps vs this checkout
 
-The system-installed LearnHarness (a Nix FHS wrapper of the packaged release) keeps its data under `~/.config/LearnHarness/`. This checkout uses separate locations:
+The system-installed upstream LearnHarness (a Nix FHS wrapper of upstream's release) keeps its data under `~/.config/LearnHarness/`. The packaged fork, **LearnHarness Fork**, uses `~/.config/LearnHarness-Fork/` and never writes upstream's folder; on its first launch it copies upstream's folder once (see [plan 02](plans/02-fork-identity-packaging.md)). This checkout uses separate locations:
 
 | Run mode | Data | Keys |
 | --- | --- | --- |
-| Installed app | `~/.config/LearnHarness/data` | `~/.config/LearnHarness/auth.json` |
+| Installed upstream app | `~/.config/LearnHarness/data` | `~/.config/LearnHarness/auth.json` |
+| Installed fork | `~/.config/LearnHarness-Fork/data` | `~/.config/LearnHarness-Fork/auth.json` |
 | `npm run dev` / `desktop:dev` | repo `data/` | repo `auth.json` (+ subscription credential files beside it) |
-| `desktop:dev` Electron profile | `~/.config/LearnHarness-dev/` (window state, browser storage) | — |
+| `desktop:dev` Electron profile | `~/.config/LearnHarness-Fork-dev/` (window state, browser storage) | — |
 
-The installed app picks a free port, so it does not collide with dev's port 3000. Shared between them: API keys from environment variables (which override saved keys) and the Claude Code CLI's own profile. Both can run at once.
+Each installed app picks a free port, so it does not collide with dev's port 3000. Shared between them: API keys from environment variables (which override saved keys) and the Claude Code CLI's own profile. Both can run at once.
 
 ## Not set up
 

@@ -80,7 +80,8 @@ afterEach(async () => {
 describe("version and contextual copy", () => {
 	it("build metadata comes from package.json and exposes only public version/homepage values", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-		assert.deepEqual(nextConfig.env, { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage });
+		// Fork: upstream base plus the fork counter (package.json "version" stays numeric).
+		assert.deepEqual(nextConfig.env, { LH_VERSION: `${pkg.version}-fork.${pkg.forkRelease}`, LH_HOMEPAGE: pkg.homepage });
 	});
 
 	it("never claims live/latest information and keeps updater errors generic", () => {

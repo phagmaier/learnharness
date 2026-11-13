@@ -43,15 +43,20 @@ const path = require("node:path");
 // renderer owns the number; this is the IPC widen target).
 const SIDEBAR_AUTOCLOSE = 928;
 
-const PRODUCT_NAME = "LearnHarness";
+// Fork identity (docs/fork/README.md): menus and dialogs say
+// "LearnHarness Fork"; all state lives in <appData>/LearnHarness-Fork, never
+// in upstream's <appData>/LearnHarness (read only by the one-time copy).
+const PRODUCT_NAME = "LearnHarness Fork";
+const USER_DATA_DIRNAME = "LearnHarness-Fork";
 
-// APP NAME → userData (owner, 2026-10-10): the Application Support dir is
-// exactly "LearnHarness" in dev AND packaged. Packaged Electron would
-// otherwise derive it from package.json "name" (now lowercase
+// APP NAME → userData (owner, 2026-10-10; fork: the folder name is set
+// explicitly because the display name has a space). Packaged Electron would
+// otherwise derive both from package.json "name" (lowercase
 // "learnharness"), and productName metadata alone doesn't reach app.name.
 // Must run before the LH_DEV_URL suffix below — dev becomes
-// "LearnHarness-dev".
+// "LearnHarness-Fork-dev".
 app.setName(PRODUCT_NAME);
+app.setPath("userData", path.join(app.getPath("appData"), USER_DATA_DIRNAME));
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
 

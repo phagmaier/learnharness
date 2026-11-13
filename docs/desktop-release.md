@@ -1,6 +1,6 @@
 # Desktop builds and releases
 
-> **Fork note:** this fork removed `.github/workflows/release.yml` and `notify-website.yml` and builds only for Linux in CI. The release sections below describe upstream's process. See [docs/fork/README.md](fork/README.md).
+> **Fork note:** this fork removed `.github/workflows/release.yml`, `notify-website.yml`, and the release verifier `scripts/verify-release.ts`, and builds only for Linux in CI. The fork releases a locally built AppImage (see [docs/fork/nixos.md](fork/nixos.md)). The release sections below describe upstream's process. See [docs/fork/README.md](fork/README.md).
 
 This is a maintainer reference. For installation and normal use, start with [Getting started](getting-started.md).
 

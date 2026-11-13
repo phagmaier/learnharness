@@ -2,11 +2,14 @@ import { readFileSync } from "node:fs";
 import type { NextConfig } from "next";
 import { MAX_IMPORT_BODY_BYTES } from "./lib/notes-import-limits.ts";
 
-const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; homepage: string };
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string; forkRelease: number; homepage: string };
 
 const nextConfig: NextConfig = {
 	// Public build metadata only; no new runtime Electron version API.
-	env: { LH_VERSION: pkg.version, LH_HOMEPAGE: pkg.homepage },
+	// Fork: the shown version is upstream's base plus the fork counter
+	// (scripts/fork-version.mjs); package.json "version" stays numeric for
+	// plugin compatibility checks.
+	env: { LH_VERSION: `${pkg.version}-fork.${pkg.forkRelease}`, LH_HOMEPAGE: pkg.homepage },
 	// Leave multipart headroom above the 25 MiB file allowance. This is a
 	// proxy buffer, not a rejection gate: the import route also bounds reads,
 	// validates actual file bytes and handles incomplete multipart bodies.
