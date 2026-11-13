@@ -166,6 +166,13 @@ Each item gets its own implementation plan, approved before work starts.
 
 *Reordered 2026-11-12 (human):* releasing and installing moved from step 2 to last. The app should be working with all changes in place before anything is packaged or installed. A first release and Hermes package were made and then removed the same day: the GitHub release `v0.6.1-fork.1` was deleted and the Hermes changes were never committed or activated.
 
+## Pending human checks
+
+Checks only the human can do, such as clicking native dialogs or menus. Remove an entry once it's done; report problems as bugs.
+
+- *Step 1, right-click menu:* in `nix develop -c mise exec -- npm run desktop:dev`, right-click a misspelled word. Expect up to 5 suggestions, "Add to dictionary", then the editing items.
+- *Step 2, first-launch dialogs:* run the packaged build against a scratch profile (`npm run desktop:dist:linux`, then `XDG_CONFIG_HOME=<scratch>/config nix develop -c dist/linux-unpacked/learnharness-fork`, with a fake `LearnHarness` folder in the scratch config). Check the "LearnHarness is running" dialog (Retry asks again while upstream runs; once upstream quits, Retry restarts the app and copies), Quit, the "Copied…" confirmation, and the copy-failed dialog. Retry's restart inside the Hermes wrapper can only be checked in step 8.
+
 ## Open questions
 
 - Feature ideas beyond those above are welcome from agents; the human builds features directly in the fork and does not need local models.
