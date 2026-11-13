@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
-import type { ChatListItem } from "@/src/core";
+import type { ChatKind, ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { PluginWidgets } from "@/components/plugins";
@@ -921,6 +921,11 @@ function SessionsSidebar() {
 						>
 							Export as Markdown…
 						</button>
+						<ExportHtmlItem
+							chatId={ctxChatId}
+							kind={chats?.find((c) => c.id === ctxChatId)?.kind}
+							onPicked={() => setCtxChatId(null)}
+						/>
 						<button
 							type="button"
 							data-testid="ctx-delete"
@@ -946,6 +951,32 @@ function SessionsSidebar() {
 					onDeleted={onDeleted}
 				/>
 			</aside>
+	);
+}
+
+/** "Export as HTML…" in the session menu (fork plan 03): the whole Teach
+ *  session as one self-contained page, built fresh by the route and
+ *  downloaded like the Markdown export. Practice sessions keep only the
+ *  Markdown export, so the item is absent for them. */
+export function ExportHtmlItem({ chatId, kind, onPicked }: { chatId: string; kind?: ChatKind; onPicked: () => void }) {
+	if ((kind ?? "teach") !== "teach") return null;
+	return (
+		<button
+			type="button"
+			data-testid="ctx-export-html"
+			onClick={() => {
+				onPicked();
+				const a = document.createElement("a");
+				a.href = `/api/chats/${chatId}/export.html`;
+				a.download = ""; // the route's filename wins
+				document.body.appendChild(a);
+				a.click();
+				a.remove();
+			}}
+			className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+		>
+			Export as HTML…
+		</button>
 	);
 }
 

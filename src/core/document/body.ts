@@ -14,7 +14,8 @@ import { renderTex, splitMath, type MathFailure } from "./math.ts";
 const LITERAL_TAGS = new Set([
 	"pre", "code", "kbd", "samp", "svg", "math", "script", "style", "textarea", "template", "noscript", "title",
 ]);
-const LITERAL_CLASSES = ["mermaid", "katex", "katex-display"];
+/** `lh-verbatim` marks learner-written text, shown as typed (as in the chat). */
+const LITERAL_CLASSES = ["mermaid", "katex", "katex-display", "lh-verbatim"];
 const MERMAID_SELECTOR = "pre.mermaid, div.mermaid";
 
 export interface DiagramSlot {

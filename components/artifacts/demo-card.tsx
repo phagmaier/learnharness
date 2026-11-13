@@ -8,6 +8,7 @@ import { ChatActionsContext } from "@/components/chat";
 import { downloadFile, slugFilename } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
 import type { ArtifactPartProps, DemoResult } from "@/src/core";
+import { buildDemoSrcDoc, DEMO_MAX_HEIGHT, DEMO_MIN_HEIGHT } from "@/src/core";
 
 /**
  * Demo artifact card (W6): while the part is input-available, a job activity
@@ -28,29 +29,9 @@ import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 // ─── bridge injection + message handling (pure, testable) ───────────────────
 
-export const DEMO_BRIDGE_SCRIPT = `<script>(function(){
-var send=function(m){try{parent.postMessage(m,"*")}catch(e){}};
-var post=function(){
-var b=document.body;
-if(!b){send({type:"demo-resize",height:document.documentElement.scrollHeight});return}
-var h=Math.max(b.scrollHeight,b.getBoundingClientRect().height);
-var cs=getComputedStyle(b);
-h+=(parseFloat(cs.marginTop)||0)+(parseFloat(cs.marginBottom)||0);
-send({type:"demo-resize",height:Math.ceil(h)})
-};
-if(typeof ResizeObserver!=="undefined"){new ResizeObserver(post).observe(document.documentElement)}
-window.addEventListener("resize",post);
-window.addEventListener("load",post);
-window.addEventListener("error",function(e){send({type:"demo-error",message:e.message||String(e)})});
-setTimeout(post,50);
-setTimeout(post,400);
-})();</script>`;
-
-/** Inject the bridge before </body> (or at the end of a body-less document). */
-export function buildDemoSrcDoc(html: string): string {
-	if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${DEMO_BRIDGE_SCRIPT}</body>`);
-	return `${html}${DEMO_BRIDGE_SCRIPT}`;
-}
+// The bridge script and its injection live in core (shared with
+// conversation exports); re-exported here for existing importers.
+export { buildDemoSrcDoc, DEMO_BRIDGE_SCRIPT } from "@/src/core";
 
 export interface DemoBridgeState {
 	height: number | null;
@@ -59,8 +40,8 @@ export interface DemoBridgeState {
 
 export const INITIAL_DEMO_BRIDGE_STATE: DemoBridgeState = { height: null, error: null };
 
-const MIN_HEIGHT = 80;
-const MAX_HEIGHT = 2400;
+const MIN_HEIGHT = DEMO_MIN_HEIGHT;
+const MAX_HEIGHT = DEMO_MAX_HEIGHT;
 
 /** Pure reducer over incoming postMessage data (contracts.ts DemoBridgeMessage). */
 export function reduceDemoBridgeState(state: DemoBridgeState, data: unknown): DemoBridgeState {

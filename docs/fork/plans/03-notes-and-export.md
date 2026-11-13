@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Item 1 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–2 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -268,6 +268,46 @@ The user message holds the session title, the session text in a `<session>` bloc
   - An interactive demo frame prints only what fits on one page.
   - Including only the KaTeX font families a page uses would roughly halve its 360 KiB. This is not planned.
 - **Found, inherited, not fixed:** `electron/main.cjs` sets the app's user-data folder before the `--browser-service` branch. A browser helper spawned in dev (demo checks, and now Mermaid) therefore keeps its Chromium profile in `~/.config/LearnHarness-Fork`. The agent's runs set `XDG_CONFIG_HOME` to a scratch folder.
+
+### Item 2 (2026-11-13)
+
+- **Built:**
+  - `GET /api/chats/:id/export.html` (`app/api/chats/[id]/export.html/route.ts`) on `conversationExportHtml` (`src/server/document-export.ts`).
+  - The core builder `conversationDocument` (`src/core/document/conversation.ts`) and the Markdown reader `markdownToHtml` (`src/core/document/markdown.ts`).
+  - The static plan map `planMapSvg` (`src/core/document/plan-map.ts`).
+  - "Export as HTML…" in the sidebar menu for Teach sessions.
+  - Dependencies: `unified` 11.0.5, `remark-parse` 11.0.0, `remark-gfm` 4.0.1, `remark-math` 6.0.0, `remark-rehype` 11.1.2, `rehype-katex` 7.0.1, and `hast-util-to-html` 9.0.5, added as exact direct dependencies. The lockfile change is only the root dependency list.
+- **Agent-selected:**
+  - **Transcript source and order:**
+    - Blocks come from the chat's own projection (`projectView`).
+    - Side threads are placed by `sideEntryPoints`, at the same segment boundaries where the chat shows their button.
+    - The plan helpers moved to `src/core/plan-layout.ts`, and the demo bridge to `src/core/demo-bridge.ts`. Both are re-exported from their components unchanged. The barrel exports the plan's node type as `PlanLayoutNode`, because the graph layout already owns `LayoutNode`.
+  - **Learner text:**
+    - Shown verbatim, as in the chat: never read as Markdown or math.
+    - Tutor quotes appear as quotes labeled "Tutor quote", with "Comment:".
+    - Images attached to learner messages and answers are included.
+  - **Question labels:**
+    - Each label is the chat's label plus "question": "Check question", "Prediction question", "Probe question", "Recall question", "Explain question". Ask questions are labeled "Question".
+    - Result badges: "Right", "Wrong", "Don't know", "Skipped".
+    - Other wording: "Confidence: N%", "Your thinking while reading:", "Your thinking:", and "Your answer: “…”".
+    - "Why" is collapsed, as in the chat, and an explain question shows "The answer".
+  - **Briefs and failures:**
+    - A PDF brief's summary reads "PDF brief · <file> (pages 3–5, 9)".
+    - Only http(s) research sources become links.
+    - A failed figure, demo, research, or PDF job shows a muted failure note.
+    - Plugin worker results are left out.
+  - **Side threads:** the summary quotes the first attached passage, or the anchor block, cut at 140 characters.
+  - **Dates:** the subtitle's date is the session's creation date.
+  - **Markdown:** links to anything other than web, mail, or in-page targets lose their target and keep their text.
+  - **The route:**
+    - A Practice session gets 400 with "Practice sessions have no HTML export."
+    - Responses carry `Content-Security-Policy: sandbox allow-scripts allow-popups`, `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`.
+  - **Sidebar:** the menu item is a small exported component (`ExportHtmlItem`), so it can be render-tested.
+- **Checks:**
+  - Typecheck passed. Lint passed with the one inherited warning.
+  - Tests: 5357 pass, 0 fail, 4 skipped, including the new `tests/conversation-export.test.tsx` and `tests/conversation-export-route.test.ts`. The plan-map test compares node and edge geometry with the chat's `PlanBlock` for the same snapshot.
+  - The golden teach fixture exports with 10 questions, 2 plan maps, a figure, the demo frame (auto-sized to 1212 px in a browser), the research brief, and the failed PDF job's note.
+- **Not yet checked:** the sidebar entry in a running app is part of item 4's browser check.
 
 ## Not in this plan
 

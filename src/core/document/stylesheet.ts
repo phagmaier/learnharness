@@ -300,6 +300,29 @@ body {
 .lh-question-meta { margin: 0; color: var(--lh-muted); font-size: 0.9rem; }
 .lh-question-meta + .lh-question-meta { margin-top: 0.2rem; }
 
+.lh-verbatim { white-space: pre-wrap; }
+.lh-learner-text { margin: 0; }
+.lh-images { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.lh-images > img { max-width: 100%; max-height: 18rem; border-radius: 6px; border: 1px solid var(--lh-rule); }
+.lh-quote {
+	margin: 0.5rem 0;
+	padding: 0.1rem 0 0.1rem 0.8rem;
+	border-left: 3px solid var(--lh-rule);
+	color: var(--lh-ink-soft);
+}
+.lh-quote-comment { margin: 0.35rem 0 0; }
+.lh-question-details { margin: -0.3rem 0 0.6rem; color: var(--lh-muted); font-size: 0.92rem; }
+.lh-question-details > :where(:last-child) { margin-bottom: 0; }
+.lh-option-description { display: block; color: var(--lh-muted); font-size: 0.85rem; }
+.lh-question .lh-why { margin: 0.6rem 0 0; padding: 0.4rem 0.8rem; }
+.lh-question .lh-why > summary { font-weight: 600; font-size: 0.9rem; }
+.lh-answer-key { margin-top: 0.7rem; padding: 0.6rem 0.85rem; border-radius: 8px; background: var(--lh-surface); }
+.lh-answer-key > :where(:last-child) { margin-bottom: 0; }
+.lh-artifact-failed { margin: 1.2rem 0; color: var(--lh-muted); }
+.lh-artifact-failed > p { margin: 0; }
+.lh-side-answer > :where(:last-child) { margin-bottom: 0; }
+.lh-side .lh-learner { margin: 0.6rem 0; }
+
 .lh-plan { margin: 1.6rem 0; }
 .lh-plan > svg { display: block; width: 100%; height: auto; margin: 0 auto; }
 

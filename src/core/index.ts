@@ -17,6 +17,14 @@
 
 export * from "./contracts.ts";
 export { embedLearnerImage } from "./learner-image-svg.ts";
+export * from "./demo-bridge.ts";
+// Plan map geometry (shared by the chat's plan block and the export's plan
+// map); its LayoutNode is renamed here beside the graph layout's own.
+export {
+	ARROW_HEAD, blockLayout, edgePathD, estimateLineWidth, GAP_X, GAP_Y, GLOW_BLUR, GLOW_MARGIN, GLOW_REACH,
+	GRAPH_PAD, HEAD_H, HEAD_W, LINE_H, NODE_H, NODE_W_MIN, nodeWidth, PAD_X, STROKE_W, TEXT_CAP_SCALE, topoFor,
+	wrapTitle, type LayoutNode as PlanLayoutNode,
+} from "./plan-layout.ts";
 export * from "./ports.ts";
 export * from "./chains.ts";
 export * from "./source-organization.ts";
