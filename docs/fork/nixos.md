@@ -49,7 +49,7 @@ The system-installed upstream LearnHarness (a Nix FHS wrapper of upstream's rele
 | Run mode | Data | Keys |
 | --- | --- | --- |
 | Installed upstream app | `~/.config/LearnHarness/data` | `~/.config/LearnHarness/auth.json` |
-| Installed fork | `~/.config/LearnHarness-Fork/data` | `~/.config/LearnHarness-Fork/auth.json` |
+| Installed fork (roadmap step 8) | `~/.config/LearnHarness-Fork/data` | `~/.config/LearnHarness-Fork/auth.json` |
 | `npm run dev` / `desktop:dev` | repo `data/` | repo `auth.json` (+ subscription credential files beside it) |
 | `desktop:dev` Electron profile | `~/.config/LearnHarness-Fork-dev/` (window state, browser storage) | — |
 
@@ -57,7 +57,7 @@ Each installed app picks a free port, so it does not collide with dev's port 300
 
 ## Packaging the fork
 
-The installed fork is an AppImage built here, published as a GitHub release on the fork, and wrapped in Hermes (`home/phagmaier/learnharness-fork.nix`) with `appimageTools.wrapType2`, like upstream's. Decisions: [README](README.md#fork-identity-packaging-and-ci--2026-11-12); plan: [plan 02](plans/02-fork-identity-packaging.md).
+**Not installed yet:** releasing and installing is roadmap step 8, the last step. Until then only the local build below is used. The planned install is an AppImage built here, published as a GitHub release on the fork, and wrapped in Hermes (`home/phagmaier/learnharness-fork.nix`) with `appimageTools.wrapType2`, like upstream's. Decisions: [README](README.md#fork-identity-packaging-and-ci--2026-11-12); plan: [plan 02](plans/02-fork-identity-packaging.md).
 
 **Versions.** `package.json` `version` stays upstream's numeric base (plugin manifests are checked against it); `forkRelease` counts fork releases on that base. `node scripts/fork-version.mjs` prints the shown version, e.g. `0.6.1-fork.1`. Bump `forkRelease` for each release; reset it to 1 after merging a new upstream version.
 

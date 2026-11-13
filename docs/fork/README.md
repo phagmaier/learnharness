@@ -156,15 +156,18 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 Each item gets its own implementation plan, approved before work starts.
 
 1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
-2. *(Planned; see [plan 02](plans/02-fork-identity-packaging.md).)* **Fork identity and packaging:** LearnHarness Fork name and data folder, one-time data copy, updater off, personal Nix package. Done before fork-only data formats exist, so real learning data is never mixed with upstream's.
+2. *(Done 2026-11-12; see [plan 02](plans/02-fork-identity-packaging.md), items 1–5.)* **Fork identity:** LearnHarness Fork name and data folder, one-time data copy, updater off, and a local AppImage build. These only take effect in a packaged build; dev runs are unchanged.
 3. **Phase 0:** on-demand HTML notes and conversation export.
 4. **Phase 1:** courses and units.
 5. **Books.**
 6. **Phase 2:** mastery gates.
 7. **Phase 3:** competency and weak points.
+8. **Release and install:** publish a fork release and install it through Hermes (plan 02, items 6–7, re-planned when this step starts). Until then the human keeps learning in upstream LearnHarness, and the fork runs only in dev against the repo's data.
+
+*Reordered 2026-11-12 (human):* releasing and installing moved from step 2 to last. The app should be working with all changes in place before anything is packaged or installed. A first release and Hermes package were made and then removed the same day: the GitHub release `v0.6.1-fork.1` was deleted and the Hermes changes were never committed or activated.
 
 ## Open questions
 
 - Feature ideas beyond those above are welcome from agents; the human builds features directly in the fork and does not need local models.
-- **Desktop PATH under mise (settled 2026-11-12: the Nix wrapper adds mise's shims to PATH; see Decisions).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Option for step 2: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.
+- **Desktop PATH under mise (settled 2026-11-12: the Nix wrapper adds mise's shims to PATH; see Decisions; built in roadmap step 8).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Rejected option: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.
 - Whether the fork's GitHub repository settings (Actions enabled, branch protection) need changes after the workflows are trimmed.

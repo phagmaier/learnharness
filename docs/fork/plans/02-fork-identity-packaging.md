@@ -1,6 +1,6 @@
 # Plan 02: fork identity and packaging (roadmap step 2)
 
-**Status:** approved by the human 2026-11-12; items 1–5 implemented on branch `fork-identity`, release (6) and Hermes (7) pending.
+**Status:** approved by the human 2026-11-12. Items 1–5 are done and merged. Items 6–7 (release and Hermes) were moved to roadmap step 8, the last step (human, 2026-11-12). The first release and the Hermes branch were made and then removed; re-check items 6–7 against the code when step 8 starts.
 
 Designs: [fork README](../README.md), "Fork identity, packaging, and CI" and "Desktop PATH under mise". Choices made in the 2026-11-12 interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion.
 
