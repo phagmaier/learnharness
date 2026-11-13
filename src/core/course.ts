@@ -15,6 +15,7 @@ import type {
 	CourseRecord,
 	CourseUnit,
 	HandoffTopic,
+	SessionCourseView,
 	UnitHandoff,
 } from "./contracts/course.ts";
 import type { LhMessage } from "./native-messages.ts";
@@ -560,4 +561,105 @@ export function unitDraftsFromRows(rows: readonly UnitDraftRow[], existing: Read
 /** "3 of 8 units completed". */
 export function courseProgressLine(units: readonly Pick<CourseUnit, "status">[]): string {
 	return `${units.filter((unit) => unit.status === "completed").length} of ${units.length} units completed`;
+}
+
+// ─── unit sessions (item 4) ─────────────────────────────────────────────────
+
+/**
+ * The start warning for a unit whose direct prerequisites aren't all
+ * completed; null when they are. One unfinished prerequisite is named,
+ * several are listed by number.
+ */
+export function prerequisiteWarning(units: readonly CourseUnit[], unitId: string): string | null {
+	const index = units.findIndex((unit) => unit.id === unitId);
+	if (index === -1) return null;
+	const unfinished = unfinishedPrerequisites(units, unitId);
+	if (unfinished.length === 0) return null;
+	const number = (unit: CourseUnit) => String(units.indexOf(unit) + 1);
+	const named = unfinished.length === 1
+		? `unit ${number(unfinished[0]!)} (${unfinished[0]!.title}), which isn't`
+		: `units ${joinNumbers(unfinished.map(number))}, which aren't`;
+	return `Unit ${index + 1} builds on ${named} completed yet. Start anyway?`;
+}
+
+const STATUS_WORDS: Record<CourseUnit["status"], string> = {
+	"not-started": "not started",
+	"in-progress": "in progress",
+	completed: "completed",
+};
+
+const PROPOSAL_WORDS: Record<CourseRecord["proposals"][number]["status"], string> = {
+	pending: "Pending (the learner hasn't decided)",
+	accepted: "Accepted",
+	rejected: "Rejected",
+	outdated: "Outdated",
+};
+
+/**
+ * The course section a unit session's prober or teacher reads each turn,
+ * after its unit doctrine: the course, this unit (goal and the setup
+ * probe's starting point), every unit on one line, the full handoffs of
+ * the unit's direct and indirect prerequisites, and the decisions on this
+ * unit's own course-change proposals. Composed fresh from the record, so
+ * a reopened prerequisite or a revised list shows on the next turn.
+ */
+export function unitCourseContext(course: CourseRecord, unitId: string): string {
+	const units = course.units;
+	const index = units.findIndex((unit) => unit.id === unitId);
+	const unit = units[index];
+	if (!unit) return "";
+	const numberOf = new Map(units.map((candidate, i) => [candidate.id, i + 1]));
+	const lines = [
+		"# Course context",
+		"",
+		`Course: ${course.title}`,
+		`Course goal: ${course.goal}`,
+		"",
+		`This session is unit ${index + 1} of ${units.length}: ${unit.title} (id ${unit.id}).`,
+		`Unit goal: ${unit.goal}`,
+		`Starting point (the setup probe's read): ${unit.startingPoint?.trim() || "none recorded"}`,
+		"",
+		"Units (number. id: title, status, builds on):",
+		...units.map((candidate, i) => {
+			const buildsOn = candidate.prerequisites.map((id) => numberOf.get(id)).filter((n): n is number => n !== undefined).sort((a, b) => a - b);
+			const status = `${STATUS_WORDS[candidate.status]}${candidate.id === unitId ? ", this unit" : ""}`;
+			return `${i + 1}. ${candidate.id}: ${candidate.title} (${status}${buildsOn.length > 0 ? `; builds on ${buildsOn.join(", ")}` : ""})`;
+		}),
+	];
+	const prerequisites = transitivePrerequisites(units, unitId);
+	if (prerequisites.length > 0) {
+		lines.push("", "Handoffs from the units this one builds on, directly or indirectly:");
+		for (const prerequisite of prerequisites) {
+			const number = numberOf.get(prerequisite.id)!;
+			lines.push("");
+			if (prerequisite.status === "completed" && prerequisite.handoff) {
+				lines.push(handoffText(number, prerequisite, prerequisite.handoff));
+			} else if (prerequisite.handoff) {
+				lines.push(`Unit ${number} · ${prerequisite.title} was reopened and is ${STATUS_WORDS[prerequisite.status]}. Its last handoff:`, handoffText(number, prerequisite, prerequisite.handoff));
+			} else {
+				lines.push(`Unit ${number} · ${prerequisite.title}: ${STATUS_WORDS[prerequisite.status]}, no handoff yet.`);
+			}
+		}
+	}
+	const own = course.proposals.filter((proposal) => proposal.unitId === unitId);
+	if (own.length > 0) {
+		lines.push("", "Your course-change proposals from this unit:");
+		for (const proposal of own) {
+			const outdated = proposal.status === "outdated" && proposal.outdatedReason ? ` (${proposal.outdatedReason})` : "";
+			lines.push(`- ${PROPOSAL_WORDS[proposal.status]}${outdated}: ${proposal.reason}`, ...proposal.changes.map((change) => `  - ${courseChangeLine(change, units)}`));
+		}
+	}
+	return lines.join("\n");
+}
+
+/** A unit session's page view of its course; undefined when the session
+ *  doesn't hold the unit (the server and the live page share it). */
+export function unitSessionView(course: CourseRecord, unitId: string, chatId: string): Extract<SessionCourseView, { role: "unit" }> | undefined {
+	const index = course.units.findIndex((unit) => unit.id === unitId);
+	const unit = course.units[index];
+	if (!unit || unit.chatId !== chatId) return undefined;
+	return {
+		role: "unit", courseId: course.id, courseTitle: course.title, unitId: unit.id, number: index + 1, unitTitle: unit.title, status: unit.status,
+		...(unit.goalReachedAt ? { goalReachedAt: unit.goalReachedAt } : {}),
+	};
 }

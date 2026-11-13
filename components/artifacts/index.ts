@@ -6,6 +6,7 @@ import { VisualCard } from "@/components/artifacts/visual-card";
 import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { CourseProposalCard } from "@/components/artifacts/course-proposal-card";
+import { GoalReachedLine } from "@/components/course-session";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
 
@@ -37,6 +38,8 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	probe_done: ProbeDoneCard,
 	// Fork plan 04: the setup session's editable course proposal.
 	propose_course: CourseProposalCard,
+	// A unit teacher's goal signal: a quiet line with its summary.
+	goal_reached: GoalReachedLine,
 	// The learner-filesystem set (sources v1): one quiet expandable
 	// tool-call card each — collapsed one-liner (tool name + headline
 	// argument), full input/output on expand.

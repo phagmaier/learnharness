@@ -16,8 +16,9 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
-import { courseInputRefusal } from "./courses.ts";
+import { courseInputRefusal, unitTurnCourse } from "./courses.ts";
 import { sessionExtracts } from "../core/course.ts";
+import { TEACHER_UNIT_DOCTRINE } from "../agent/course-prompts.ts";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -231,6 +232,9 @@ export async function handleChatInput(
 	// takes no new main input. Refused before any effect.
 	const closed = courseInputRefusal(record, input.type);
 	if (closed) return Response.json({ error: closed.error }, { status: closed.status });
+	// A unit session's course section, composed fresh from the course
+	// record for this request (fork plan 04; undefined elsewhere).
+	const unitCourse = unitTurnCourse(record);
 
 	const capturedSession = { createdAt: record.createdAt, kind: record.kind };
 	const freshSubmission = input.type === "text" || input.type === "thinking" || input.type === "answer" || input.type === "plugin-question-answer" || input.type === "plugin-problem-submission";
@@ -372,7 +376,9 @@ export async function handleChatInput(
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
 	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
-	const systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4);
+	// A unit's course section rides the system prompt too (fork plan 04).
+	const courseSectionChars = unitCourse ? TEACHER_UNIT_DOCTRINE.length + unitCourse.context.length : 0;
+	const systemPromptTokens = Math.ceil((composeInstructions(record.kind === "practice" ? "practice" : "teacher").length + courseSectionChars) / 4);
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -733,6 +739,8 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
+		// Fork plan 04: a unit session's course section and goal_reached hook.
+		...(unitCourse ? { course: unitCourse } : {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher

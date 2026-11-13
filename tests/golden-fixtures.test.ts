@@ -51,6 +51,8 @@ const { danglingQuestionOf, activeProblemOf } = await import("../src/core/native
 
 const TEACH = "chat_mv27rrra_feff23b6";
 const PRACTICE = "chat_mv293wv5_10656952";
+/** Fork plan 04: unit 3 of the golden course, through goal_reached. */
+const UNIT = "chat_mwflszug_5a1f29dc";
 
 function snapshotTree(dir: string): Map<string, Buffer> {
 	const out = new Map<string, Buffer>();
@@ -70,13 +72,14 @@ test.after(() => {
 
 // ── chats: records, folds, and the wire ─────────────────────────────────────
 
-test("chats: both fixture records parse through the production read path", () => {
+test("chats: every fixture record parses through the production read path", () => {
 	const list = chatStore.listChats();
 	const ids = new Set(list.map((c) => c.id));
 	assert.ok(ids.has(TEACH), "the teach master record lists");
 	assert.ok(ids.has(PRACTICE), "the practice lifecycle record lists");
+	assert.ok(ids.has(UNIT), "the course unit record lists");
 
-	for (const id of [TEACH, PRACTICE]) {
+	for (const id of [TEACH, PRACTICE, UNIT]) {
 		const r = chatStore.getChat(id);
 		assert.ok(r, `${id} reads`);
 		assert.ok(Array.isArray(r!.messages) && r!.messages.length > 0);
@@ -88,7 +91,7 @@ test("chats: both fixture records parse through the production read path", () =>
 });
 
 test("chats: the LLM wire flattening turns each full record into a legal provider message list", () => {
-	for (const id of [TEACH, PRACTICE]) {
+	for (const id of [TEACH, PRACTICE, UNIT]) {
 		const r = chatStore.getChat(id)!;
 		const wire = toLlmMessages(r.messages as never);
 		assert.ok(wire.length > 0);
@@ -127,9 +130,10 @@ test("markers: the fixture pair covers EVERY custom-marker kind of the current c
 		"practice-next",
 		"problem-dismissed",
 		"compaction",
+		"unit-start",
 	] as const;
 	const seen = new Set<string>();
-	for (const id of [TEACH, PRACTICE]) {
+	for (const id of [TEACH, PRACTICE, UNIT]) {
 		for (const m of chatStore.getChat(id)!.messages) {
 			if ((m as { role?: string }).role === "custom") seen.add((m as { customType: string }).customType);
 		}
@@ -255,6 +259,19 @@ test("courses: the course record reads through the course store with every event
 	assert.deepEqual(new Set(completed.handoff!.topics.map((topic) => topic.status)), new Set(["solid", "shaky", "unchecked", "not-reached"]));
 	assert.ok(handoffText(1, completed, completed.handoff!).includes("Teacher observations (model-written):"));
 	assert.ok(progressMarkdown(record).startsWith(`# ${record.title}\n`));
+});
+
+test("courses: the unit session record carries its course link, its opening marker, and goal_reached (fork plan 04)", () => {
+	const record = chatStore.getChat(UNIT)!;
+	assert.deepEqual(record.course, { role: "unit", courseId: "course_mvgold00_9f3a1c2e", unitId: "determinants" });
+	assert.equal(record.title, "Linear algebra · 3. Determinants");
+	const first = record.messages[0] as { role: string; customType?: string };
+	assert.equal(first.role, "custom");
+	assert.equal(first.customType, "unit-start");
+	const goal = record.messages.find((m) => m.role === "toolResult" && (m as { toolName?: string }).toolName === "goal_reached") as { isError?: boolean; details?: unknown } | undefined;
+	assert.ok(goal && !goal.isError, "the teacher's goal signal succeeded");
+	assert.deepEqual(goal.details, { ok: true });
+	assert.equal(phaseAt3Lh(record.messages), "teach");
 });
 
 // ── read-only: readers never write ──────────────────────────────────────────

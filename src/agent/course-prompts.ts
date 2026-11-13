@@ -5,6 +5,8 @@
  *
  * - SETUP_DOCTRINE: the setup agent's doctrine, composed after the shared
  *   base and before the shared fragments (no prober doctrine).
+ * - PROBER_UNIT_DOCTRINE / TEACHER_UNIT_DOCTRINE: appended, with the
+ *   course context, to a unit session's prober or teacher prompt each turn.
  */
 
 export const SETUP_DOCTRINE = `# Course setup
@@ -27,3 +29,20 @@ Then explain the plan in a few sentences (why this order, what you left out beca
 
 export const PROPOSE_COURSE_DESCRIPTION =
 	"Propose the course: its title, goal, and the ordered unit list. The learner sees it as an editable card and creates the course from it. Call again with the whole list to revise. Prerequisites may name only earlier units.";
+
+export const PROBER_UNIT_DOCTRINE = `# This session is one unit of a course
+
+The course context below gives the course, its units, this unit's goal, the setup probe's starting point for it, and the handoffs from the units it builds on. The unit's goal is set: ask about it only if it leaves a real choice open.
+
+Before probing the unit's new material, briefly re-check what the handoffs mark shaky (or, if nothing is, what this unit leans on most): a question or two, not a re-probe. Trust what they mark solid. Then probe the new material as usual, starting from the starting point. Your \`probe_done\` assessment covers both the re-check and the new strands.`;
+
+export const TEACHER_UNIT_DOCTRINE = `# Teaching one unit of a course
+
+Plan only this unit's goal, from the course context below. The plan may begin by repairing shaky prerequisites the probe confirmed.
+
+When the goal is reached (every node on the path to it taught and checked), call \`goal_reached\` with a one-line summary and tell him he can complete the unit whenever he's ready. Nothing closes: answer his final questions, give a review quiz if he asks, but start no new material beyond the goal.
+
+If the unit showed that the course plan should change (a missing unit, a unit he already holds, a better order), propose it once, at the unit's end, with \`propose_course_changes\`, giving the reason. He accepts or rejects it in the card; don't ask him to confirm in prose.`;
+
+export const GOAL_REACHED_DESCRIPTION =
+	"Record that this unit's goal is reached. The learner can then complete the unit. Nothing closes; the conversation continues.";

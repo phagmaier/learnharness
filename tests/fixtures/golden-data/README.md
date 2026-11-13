@@ -25,6 +25,15 @@ core tool surface must appear in real data here.
   2026-10-10): graph-context (the bracketed preamble), problem ×2,
   practice-thinking ×2, conclude ×2, practice-next, problem-dismissed — the
   full marker cycle of a practice session, including the dismissal.
+- `chats/chat_mwflszug_5a1f29dc.json` — a course unit session (fork plan
+  04): unit 3 ("Determinants") of the golden course below, opened by its
+  `unit-start` marker, through the unit prober's probe and `probe_done`, the
+  teacher's `plan_init` and a graded check, to `goal_reached`. Written by
+  the real course service (`startUnit`) and the real turn handler against a
+  scratch copy of this directory, with a scripted (faux) model in place of
+  a provider. Only the chat record was copied in: the course record keeps
+  its earlier fixture state (unit 3 not started), so reading the pair
+  through the course service adopts this session as an interrupted start.
 - `graph/` — the real ledgers: nodes (282 lines), chains (160), sessions (8),
   coverage (93), sources (4), render-settings, positions.
 - `jobs/` — five records covering kind × status: research done + aborted by

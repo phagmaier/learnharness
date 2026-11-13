@@ -205,8 +205,20 @@ export interface CourseSummary {
 }
 
 /** What a course session's page knows about its course (fork plan 04). */
-export type SessionCourseView = {
-	role: "setup";
-	/** Set once the setup session's course exists. */
-	courseId: string | null;
-};
+export type SessionCourseView =
+	| {
+		role: "setup";
+		/** Set once the setup session's course exists. */
+		courseId: string | null;
+	}
+	| {
+		role: "unit";
+		courseId: string;
+		courseTitle: string;
+		unitId: string;
+		/** The unit's position in the course, from 1. */
+		number: number;
+		unitTitle: string;
+		status: UnitStatus;
+		goalReachedAt?: string;
+	};

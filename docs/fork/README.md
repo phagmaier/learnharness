@@ -118,6 +118,8 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 - **UI:** retain the checkpoint's themes, typography and desktop layout; place progress below the title and unit actions below their text in narrow windows, improve muted-row and editor-label contrast, preserve failed title edits for retry, show sidebar rename failures, and close an already-open setup in other windows when the course is created. The Notes placeholder is disabled until item 8 supplies its page (`CourseTabs` then receives `notesAvailable`).
 - **Implementation:** validate stored record identity and the structures this build reads before rewriting, while retaining unknown fields and evidence types. Course edits share one synchronous service operation, and learner revision ids use UUIDs. Storage versions and dependencies are unchanged.
 
+*Human, 2026-11-13, plan 04 item 4:* a unit's course section stays uncapped, as planned. Measured on fixtures, the last unit of a fully chained course receives about 5k tokens of prerequisite handoffs at 15 units and 6.7k at 20 (9k–12k when every model-written list is full at the 200-character cap), above the plan's "few thousand tokens" assumption.
+
 ## Feature designs
 
 ### Courses, units, and notes

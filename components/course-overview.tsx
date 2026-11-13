@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PencilIcon } from "lucide-react";
@@ -8,6 +8,7 @@ import {
 	courseDraftRows,
 	courseProgressLine,
 	draftProblems,
+	prerequisiteWarning,
 	unitDraftsFromRows,
 	type CourseRecord,
 	type CourseUnit,
@@ -17,6 +18,7 @@ import { TopBar } from "@/components/top-bar";
 import { UnitListEditor } from "@/components/course-unit-editor";
 import { Button } from "@/components/ui/button";
 import { useServerEvent, useServerResync } from "@/components/server-events";
+import { HostDialog } from "@/components/host-dialog";
 import { cn } from "@/lib/utils";
 
 /**
@@ -161,6 +163,15 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 		}
 	};
 
+	// Starting a unit whose prerequisites aren't all completed asks first.
+	const [confirming, setConfirming] = useState<{ unit: CourseUnit; warning: string } | null>(null);
+	const cancelRef = useRef<HTMLButtonElement>(null);
+	const requestStart = (unit: CourseUnit) => {
+		const warning = prerequisiteWarning(course.units, unit.id);
+		if (warning) setConfirming({ unit, warning });
+		else void start(unit);
+	};
+
 	const start = async (unit: CourseUnit) => {
 		setStarting(unit.id);
 		setError(null);
@@ -276,7 +287,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 											number={index + 1}
 											numberOf={numberOf}
 											starting={starting === unit.id}
-											onStart={() => void start(unit)}
+											onStart={() => requestStart(unit)}
 										/>
 									))}
 								</ol>
@@ -285,6 +296,45 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 					</div>
 				</div>
 			</div>
+			<HostDialog
+				open={confirming !== null}
+				onClose={() => { setConfirming(null); return "closed"; }}
+				initialFocusRef={cancelRef}
+				backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}
+				frame={<div role="dialog" aria-modal="true" aria-label="Start unit" data-testid="unit-start-dialog" className="w-[26rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl" />}
+			>
+				{confirming && (
+					<UnitStartWarning
+						text={confirming.warning}
+						cancelRef={cancelRef}
+						onCancel={() => setConfirming(null)}
+						onConfirm={() => { const unit = confirming.unit; setConfirming(null); void start(unit); }}
+					/>
+				)}
+			</HostDialog>
 		</div>
+	);
+}
+
+/** The prerequisite warning before starting a unit whose prerequisites
+ *  aren't all completed (the dialog's body). */
+export function UnitStartWarning({ text, cancelRef, onCancel, onConfirm }: {
+	text: string;
+	cancelRef?: Ref<HTMLButtonElement>;
+	onCancel: () => void;
+	onConfirm: () => void;
+}) {
+	return (
+		<>
+			<p data-testid="unit-start-warning" className="font-prose text-sm leading-relaxed text-foreground">{text}</p>
+			<div className="mt-4 flex justify-end gap-2">
+				<button type="button" ref={cancelRef} data-testid="unit-start-cancel" onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+					Cancel
+				</button>
+				<button type="button" data-testid="unit-start-confirm" onClick={onConfirm} className="rounded-lg border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-accent">
+					Start anyway
+				</button>
+			</div>
+		</>
 	);
 }

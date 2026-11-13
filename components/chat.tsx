@@ -70,9 +70,9 @@ import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/comp
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
-import { latestProposalCallId, type SessionCourseView } from "@/src/core";
+import { latestProposalCallId, unitSessionView, type CourseRecord, type SessionCourseView } from "@/src/core";
 import { CourseSetupContext } from "@/components/artifacts/course-proposal-card";
-import { CourseClosedBand } from "@/components/course-session";
+import { CourseClosedBand, courseSessionClosed, UnitBreadcrumb, UnitStartedLine } from "@/components/course-session";
 import { QuestionDock } from "@/components/question-dock";
 import { PluginQuestionDock } from "./plugin-question-dock";
 import { PluginQuestionPart } from "./plugin-question-part";
@@ -316,8 +316,22 @@ export function Chat({
 	const { canonicalMessages, reconciliation, reconcile, pluginQuestionAvailability, pluginQuestionDraft, pluginProblemAvailability, pluginProblemDraft, dismissPluginQuestion, readRecord, messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, status, evaluating, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
-	// Fork plan 04: a setup session whose course exists takes no new input.
-	const closedCourse = course?.role === "setup" && course.courseId ? course : null;
+	// Fork plan 04: the session's course, kept live for a unit (its status
+	// and goal signal change during the session). A setup session whose
+	// course exists, or a completed unit, takes no new input.
+	const [courseView, setCourseView] = useState<SessionCourseView | undefined>(course);
+	useEffect(() => setCourseView(course), [course]);
+	const closedCourse = courseView && courseSessionClosed(courseView) ? courseView : null;
+	const unitView = courseView?.role === "unit" ? courseView : null;
+	const unitCourseId = unitView?.courseId ?? null;
+	const unitId = unitView?.unitId ?? null;
+	const refreshUnitView = useCallback(async () => {
+		if (!unitCourseId || !unitId) return;
+		const response = await fetch(`/api/courses/${encodeURIComponent(unitCourseId)}`).catch(() => null);
+		const body = response?.ok ? ((await response.json().catch(() => null)) as { course?: CourseRecord } | null) : null;
+		if (body?.course) setCourseView(unitSessionView(body.course, unitId, chatId) ?? undefined);
+	}, [unitCourseId, unitId, chatId]);
+	useServerEvent("courses-changed", (payload) => { if (payload.courseId === unitCourseId) void refreshUnitView(); });
 
 	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -421,12 +435,14 @@ export function Chat({
 	useEffect(() => {
 		const onRename = () => {
 			if (!isInteractionScopeEligible(sessionFindScopeRef.current, controller)) return;
+			// A unit session's title is its course breadcrumb (fork plan 04).
+			if (course?.role === "unit") return;
 			setTitleDraft(titleText);
 			setRenaming(true);
 		};
 		window.addEventListener("lh:kbd-rename-session", onRename);
 		return () => window.removeEventListener("lh:kbd-rename-session", onRename);
-	}, [titleText, controller]);
+	}, [titleText, controller, course?.role]);
 
 	// The OTHER rename surface (wave 6: the sidebar's inline rename): its
 	// commit dispatches the same lh:chat-renamed event this header's rename
@@ -1691,6 +1707,11 @@ export function Chat({
 							    mousedown handler. */}
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 						</>
+					) : unitView ? (
+						<>
+							<UnitBreadcrumb view={unitView} />
+							<div className="min-w-4 flex-1" aria-hidden="true" />
+						</>
 					) : (
 					<>
 						<Hint
@@ -1818,6 +1839,8 @@ export function Chat({
 											}
 											case "data-practice-thinking":
 												return <ThinkingCard key={pi} data={part.data as PracticeThinkingData} />;
+											case "data-unit-start":
+												return <UnitStartedLine key={pi} data={part.data} />;
 											case "data-practice-next":
 												// The learner's move-on signal (owner round 16): a compact
 												// centered mono-caps line — chrome, the dismissal register.

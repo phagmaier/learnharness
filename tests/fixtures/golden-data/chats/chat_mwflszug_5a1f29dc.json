@@ -1,0 +1,659 @@
+{
+	"id": "chat_mwflszug_5a1f29dc",
+	"title": "Linear algebra · 3. Determinants",
+	"createdAt": "2026-11-13T23:24:22.264Z",
+	"updatedAt": "2026-11-13T23:24:23.294Z",
+	"messages": [
+		{
+			"id": "msg_mwflszwh_c6a22675",
+			"role": "custom",
+			"customType": "unit-start",
+			"content": "[Unit start] The learner opened unit 3, Determinants. Begin the unit's probe.",
+			"display": true,
+			"details": {
+				"courseId": "course_mvgold00_9f3a1c2e",
+				"unitId": "determinants",
+				"number": 3,
+				"title": "Determinants"
+			},
+			"timestamp": 1794612262337
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "Before the new material, a quick look at where you stand."
+				},
+				{
+					"type": "toolCall",
+					"id": "call_probe_1",
+					"name": "probe",
+					"arguments": {
+						"question": "What does the determinant of a 2×2 matrix measure geometrically?",
+						"options": [
+							{
+								"label": "How much the map scales signed area"
+							},
+							{
+								"label": "The sum of the diagonal"
+							},
+							{
+								"label": "The number of pivots"
+							}
+						],
+						"correctAnswer": "How much the map scales signed area",
+						"explanation": "The determinant is the factor by which the map scales (signed) area."
+					}
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 103,
+				"cacheRead": 0,
+				"cacheWrite": 7423,
+				"totalTokens": 7526,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1794612262603,
+			"durationMs": 3,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt043_c1563c4b"
+		},
+		{
+			"id": "msg_mwflt075_bbb0b9e7",
+			"role": "toolResult",
+			"toolCallId": "call_probe_1",
+			"toolName": "probe",
+			"content": [
+				{
+					"type": "text",
+					"text": "{\"kind\":\"quiz\",\"answers\":[{\"index\":1,\"label\":\"How much the map scales signed area\"}],\"correct\":true}"
+				}
+			],
+			"details": {
+				"kind": "quiz",
+				"tool": "probe",
+				"questionText": "What does the determinant of a 2×2 matrix measure geometrically?",
+				"options": [
+					{
+						"index": 1,
+						"label": "How much the map scales signed area"
+					},
+					{
+						"index": 2,
+						"label": "The sum of the diagonal"
+					},
+					{
+						"index": 3,
+						"label": "The number of pivots"
+					}
+				],
+				"dontKnow": false,
+				"answers": [
+					{
+						"label": "How much the map scales signed area",
+						"value": "How much the map scales signed area",
+						"index": 1
+					}
+				],
+				"answeredAt": "2026-11-13T23:24:22.682Z",
+				"correctIndices": [
+					1
+				],
+				"explanation": "The determinant is the factor by which the map scales (signed) area.",
+				"correct": true
+			},
+			"isError": false,
+			"timestamp": 1794612262721
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "toolCall",
+					"id": "call_done_1",
+					"name": "probe_done",
+					"arguments": {
+						"assessment": {
+							"strands": [
+								{
+									"strand": "determinants as area",
+									"assessment": "Floor: reads the 2×2 determinant as an area scale. Ceiling: orientation and products untested."
+								}
+							],
+							"summary": "Start at signed area, then the product rule."
+						}
+					}
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 60,
+				"cacheRead": 7423,
+				"cacheWrite": 136,
+				"totalTokens": 7619,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1794612262758,
+			"durationMs": 1,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt08f_4051dfdf"
+		},
+		{
+			"role": "toolResult",
+			"toolCallId": "call_done_1",
+			"toolName": "probe_done",
+			"content": [
+				{
+					"type": "text",
+					"text": "Assessment recorded — it is shown to the learner now and the teacher plans from it. Say your closing sentence and end your turn; the teaching phase takes over from here."
+				}
+			],
+			"details": {
+				"ok": true
+			},
+			"isError": false,
+			"durationMs": 1,
+			"timestamp": 1794612262761,
+			"id": "msg_mwflt08f_dbed6b29"
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "That's the picture. Say when you're ready for the plan."
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 14,
+				"cacheRead": 7559,
+				"cacheWrite": 111,
+				"totalTokens": 7684,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "stop",
+			"timestamp": 1794612262762,
+			"durationMs": 5,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt08f_5517ee17"
+		},
+		{
+			"id": "msg_mwflt0b4_e7088bec",
+			"role": "user",
+			"content": "Ready.",
+			"timestamp": 1794612262864
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "toolCall",
+					"id": "call_plan_1",
+					"name": "plan_init",
+					"arguments": {
+						"mermaid": "graph TD\n  signed-area[Signed area] --> formula[The 2×2 formula] --> product[Determinant of a product]"
+					}
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 32,
+				"cacheRead": 300,
+				"cacheWrite": 14694,
+				"totalTokens": 15026,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1794612262909,
+			"durationMs": 1,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt0fs_53d6d388"
+		},
+		{
+			"role": "toolResult",
+			"toolCallId": "call_plan_1",
+			"toolName": "plan_init",
+			"content": [
+				{
+					"type": "text",
+					"text": "{\"ok\":true,\"nodeIds\":[\"signed-area\",\"formula\",\"product\"],\"reminder\":\"These are the plan's node ids — the only valid nodeId values for every quiz and explain call from here on. Reference them exactly.\"}"
+				}
+			],
+			"details": {
+				"ok": true,
+				"tree": {
+					"nodes": [
+						{
+							"id": "signed-area",
+							"title": "Signed area"
+						},
+						{
+							"id": "formula",
+							"title": "The 2×2 formula"
+						},
+						{
+							"id": "product",
+							"title": "Determinant of a product"
+						}
+					],
+					"edges": [
+						{
+							"from": "signed-area",
+							"to": "formula"
+						},
+						{
+							"from": "formula",
+							"to": "product"
+						}
+					],
+					"version": 1
+				}
+			},
+			"isError": false,
+			"durationMs": 109,
+			"timestamp": 1794612263021,
+			"id": "msg_mwflt0fs_33e1cdec"
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "Orientation is the new piece: a map can flip the plane, and the sign records it."
+				},
+				{
+					"type": "toolCall",
+					"id": "call_check_1",
+					"name": "quiz",
+					"arguments": {
+						"question": "A map doubles every area and flips orientation. What is its determinant?",
+						"options": [
+							{
+								"label": "2"
+							},
+							{
+								"label": "-2"
+							},
+							{
+								"label": "1/2"
+							}
+						],
+						"correctAnswer": "-2",
+						"explanation": "Area doubles (|det| = 2) and orientation flips (negative sign).",
+						"type": "check",
+						"nodeId": "signed-area"
+					}
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 93,
+				"cacheRead": 14994,
+				"cacheWrite": 91,
+				"totalTokens": 15178,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1794612263026,
+			"durationMs": 2,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt0fs_6db58101"
+		},
+		{
+			"id": "pb_mwflt0fu_1062df2f",
+			"role": "custom",
+			"customType": "plan-block",
+			"content": "",
+			"display": true,
+			"details": {
+				"planCallId": "call_plan_1",
+				"block": {
+					"kind": "full",
+					"at": "2026-11-13T23:24:23.033Z",
+					"current": "signed-area",
+					"nodes": [
+						{
+							"id": "signed-area",
+							"title": "Signed area",
+							"status": "current"
+						},
+						{
+							"id": "formula",
+							"title": "The 2×2 formula",
+							"status": "upcoming"
+						},
+						{
+							"id": "product",
+							"title": "Determinant of a product",
+							"status": "upcoming"
+						}
+					],
+					"edges": [
+						{
+							"from": "signed-area",
+							"to": "formula"
+						},
+						{
+							"from": "formula",
+							"to": "product"
+						}
+					]
+				}
+			},
+			"timestamp": 1794612263034
+		},
+		{
+			"id": "msg_mwflt0ja_1eb4b6ae",
+			"role": "toolResult",
+			"toolCallId": "call_check_1",
+			"toolName": "quiz",
+			"content": [
+				{
+					"type": "text",
+					"text": "{\"kind\":\"quiz\",\"answers\":[{\"index\":2,\"label\":\"-2\"}],\"correct\":true,\"confidence\":80}"
+				}
+			],
+			"details": {
+				"kind": "quiz",
+				"tool": "quiz",
+				"questionType": "check",
+				"questionText": "A map doubles every area and flips orientation. What is its determinant?",
+				"options": [
+					{
+						"index": 1,
+						"label": "2"
+					},
+					{
+						"index": 2,
+						"label": "-2"
+					},
+					{
+						"index": 3,
+						"label": "1/2"
+					}
+				],
+				"dontKnow": false,
+				"answers": [
+					{
+						"label": "-2",
+						"value": "-2",
+						"index": 2
+					}
+				],
+				"answeredAt": "2026-11-13T23:24:23.129Z",
+				"correctIndices": [
+					2
+				],
+				"explanation": "Area doubles (|det| = 2) and orientation flips (negative sign).",
+				"correct": true,
+				"confidence": 80
+			},
+			"isError": false,
+			"timestamp": 1794612263158
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "toolCall",
+					"id": "call_goal_1",
+					"name": "goal_reached",
+					"arguments": {
+						"summary": "Reads determinants as signed area scale factors, including orientation."
+					}
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 25,
+				"cacheRead": 15085,
+				"cacheWrite": 120,
+				"totalTokens": 15230,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "toolUse",
+			"timestamp": 1794612263205,
+			"durationMs": 1,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt0n2_a3683b32"
+		},
+		{
+			"role": "toolResult",
+			"toolCallId": "call_goal_1",
+			"toolName": "goal_reached",
+			"content": [
+				{
+					"type": "text",
+					"text": "Recorded. The learner can complete the unit whenever he's ready; the conversation continues."
+				}
+			],
+			"details": {
+				"ok": true
+			},
+			"isError": false,
+			"durationMs": 80,
+			"timestamp": 1794612263287,
+			"id": "msg_mwflt0n2_548a2729"
+		},
+		{
+			"role": "assistant",
+			"content": [
+				{
+					"type": "text",
+					"text": "That's the unit's goal. You can complete the unit whenever you're ready."
+				}
+			],
+			"api": "faux:1794612262530:84qob5e7su",
+			"provider": "faux",
+			"model": "faux-1",
+			"usage": {
+				"input": 0,
+				"output": 18,
+				"cacheRead": 15205,
+				"cacheWrite": 57,
+				"totalTokens": 15280,
+				"cost": {
+					"input": 0,
+					"output": 0,
+					"cacheRead": 0,
+					"cacheWrite": 0,
+					"total": 0
+				}
+			},
+			"stopReason": "stop",
+			"timestamp": 1794612263292,
+			"durationMs": 1,
+			"thinkingLevel": "off",
+			"id": "msg_mwflt0n2_38cc3fc6"
+		}
+	],
+	"course": {
+		"role": "unit",
+		"courseId": "course_mvgold00_9f3a1c2e",
+		"unitId": "determinants"
+	},
+	"version": 2,
+	"settings": {
+		"model": {
+			"provider": "openrouter",
+			"id": "deepseek/deepseek-v4.1-flash"
+		},
+		"thinkingLevel": "low"
+	},
+	"turns": [
+		{
+			"id": "7aae8d63-3357-4ff0-980b-cb2c6f197856",
+			"messageId": "msg_mwflt043_c1563c4b",
+			"at": "2026-11-13T23:24:22.645Z",
+			"model": "openrouter:deepseek/deepseek-v4.1-flash",
+			"steps": [
+				{
+					"inputTokens": 0,
+					"outputTokens": 103,
+					"cacheReadTokens": 0,
+					"cacheWriteTokens": 7423,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				}
+			]
+		},
+		{
+			"id": "eb530001-9350-4940-b71e-f7c4cb786268",
+			"messageId": "msg_mwflt08f_4051dfdf",
+			"at": "2026-11-13T23:24:22.813Z",
+			"model": "openrouter:deepseek/deepseek-v4.1-flash",
+			"steps": [
+				{
+					"inputTokens": 0,
+					"outputTokens": 60,
+					"cacheReadTokens": 7423,
+					"cacheWriteTokens": 136,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				},
+				{
+					"inputTokens": 0,
+					"outputTokens": 14,
+					"cacheReadTokens": 7559,
+					"cacheWriteTokens": 111,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				}
+			]
+		},
+		{
+			"id": "bdec3c93-f0c0-4726-90f6-883a632251db",
+			"messageId": "msg_mwflt0fs_53d6d388",
+			"at": "2026-11-13T23:24:23.071Z",
+			"model": "openrouter:deepseek/deepseek-v4.1-flash",
+			"steps": [
+				{
+					"inputTokens": 0,
+					"outputTokens": 32,
+					"cacheReadTokens": 300,
+					"cacheWriteTokens": 14694,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				},
+				{
+					"inputTokens": 0,
+					"outputTokens": 93,
+					"cacheReadTokens": 14994,
+					"cacheWriteTokens": 91,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				}
+			]
+		},
+		{
+			"id": "4ec4700b-c600-45c7-b68f-5c9d9c3cb2e0",
+			"messageId": "msg_mwflt0n2_a3683b32",
+			"at": "2026-11-13T23:24:23.338Z",
+			"model": "openrouter:deepseek/deepseek-v4.1-flash",
+			"steps": [
+				{
+					"inputTokens": 0,
+					"outputTokens": 25,
+					"cacheReadTokens": 15085,
+					"cacheWriteTokens": 120,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				},
+				{
+					"inputTokens": 0,
+					"outputTokens": 18,
+					"cacheReadTokens": 15205,
+					"cacheWriteTokens": 57,
+					"cacheWrite1hTokens": 0,
+					"reasoningTokens": 0
+				}
+			]
+		}
+	],
+	"tree": {
+		"nodes": [
+			{
+				"id": "signed-area",
+				"title": "Signed area"
+			},
+			{
+				"id": "formula",
+				"title": "The 2×2 formula"
+			},
+			{
+				"id": "product",
+				"title": "Determinant of a product"
+			}
+		],
+		"edges": [
+			{
+				"from": "signed-area",
+				"to": "formula"
+			},
+			{
+				"from": "formula",
+				"to": "product"
+			}
+		],
+		"version": 1
+	}
+}

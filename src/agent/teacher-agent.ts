@@ -6,7 +6,8 @@ import type { Usage } from "@earendil-works/pi-ai";
 import { PATHS } from "../../config.ts";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
-import { SETUP_DOCTRINE } from "./course-prompts.ts";
+import { PROBER_UNIT_DOCTRINE, SETUP_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "./course-prompts.ts";
+import { goalReachedTool } from "./tools/course.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
@@ -64,7 +65,7 @@ export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
 	// Fork plan 04: the course tools.
-	"propose_course",
+	"propose_course", "goal_reached",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -173,6 +174,24 @@ export interface AgentBuildOptions {
 	 *  <chatId>.jsonl via providerEventObserver — the GLM-truncation /
 	 *  DeepSeek-id incident layer. Absent or env-off → no observer. */
 	chatId?: string;
+	/** Fork plan 04: a unit session's course, composed fresh each turn by
+	 *  the server. The prober and teacher append their unit doctrine and
+	 *  `context` to the system prompt; the teacher also gets goal_reached,
+	 *  which records through `recordGoalReached` (null on success, else the
+	 *  refusal the model reads). Other agents ignore it. */
+	course?: {
+		context: string;
+		recordGoalReached?: (summary: string, toolCallId: string) => string | null;
+	};
+}
+
+/** The unit doctrine for the agent kind, before the course context; none
+ *  outside a unit's prober and teacher. */
+function unitCourseSection(kind: AgentKind, course: AgentBuildOptions["course"]): string | null {
+	if (!course?.context) return null;
+	if (kind === "prober") return `${PROBER_UNIT_DOCTRINE}\n\n${course.context}`;
+	if (kind === "teacher") return `${TEACHER_UNIT_DOCTRINE}\n\n${course.context}`;
+	return null;
 }
 
 /**
@@ -232,7 +251,11 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const composedPrompt = opts.promptSwitches
 		? composeInstructions(kind, opts.promptSwitches)
 		: composedInstructions[kind]!;
-	const builtinPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	const narrated = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	// Fork plan 04: a unit session's course section closes the app's own
+	// prompt, after the agent's doctrine and before plugin instructions.
+	const courseSection = unitCourseSection(kind, opts.course);
+	const builtinPrompt = courseSection ? `${narrated}\n\n---\n\n${courseSection}` : narrated;
 	// Bind native read and preserve the kind/model-aware Claude output gate
 	// before resolving additive plugins. Explicit registries remain caller-owned.
 	const builtinTools = [
@@ -382,7 +405,12 @@ export function createTeacherAgent(
 	ctx?: TeacherToolContext,
 	opts: AgentBuildOptions = {},
 ) {
-	const tools = opts.tools ?? (ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools());
+	const record = opts.course?.recordGoalReached;
+	// Fork plan 04: a unit's teacher signals the goal with goal_reached.
+	const tools = opts.tools ?? {
+		...(ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools()),
+		...(record ? healToolRecord({ goal_reached: goalReachedTool(record) }) : {}),
+	};
 	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
 		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false
 		: undefined);

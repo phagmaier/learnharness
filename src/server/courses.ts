@@ -9,8 +9,9 @@
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
 import type { ChatCourseLink, ChatRecord, ChatSummary, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
-import { applyUnitEdit, draftProblems, latestProposalCallId, uniqueUnitId, unitEditSummary, type UnitDraft } from "../core/course.ts";
+import { applyUnitEdit, draftProblems, latestProposalCallId, uniqueUnitId, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
+import { applyOrganizationAction, placementOf } from "../core/source-organization.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
 import { stampSessionModel } from "./chats.ts";
 import { stores } from "./stores.ts";
@@ -243,12 +244,42 @@ function adoptUnitSessions(course: CourseRecord, summaries?: readonly ChatSummar
 		adopted.set(unit.id, chat);
 	}
 	if (adopted.size === 0) return course;
+	let sourceFolderId = course.sourceFolderId;
+	for (const chat of adopted.values()) sourceFolderId = placeUnitSource({ ...course, sourceFolderId }, chat.id) ?? sourceFolderId;
 	return courseStore.update(course.id, (current) => ({
 		...current,
+		...(sourceFolderId ? { sourceFolderId } : {}),
 		units: current.units.map((unit) => adopted.has(unit.id) ? { ...unit, status: "in-progress", chatId: adopted.get(unit.id)!.id } : unit),
 		evidence: [...current.evidence, ...[...adopted].flatMap(([unitId, chat]) => current.evidence.some((event) => event.id === `unit-started:${chat.id}`) ? []
 			: [{ type: "unit-started" as const, id: `unit-started:${chat.id}`, at: chat.createdAt, unitId, chatId: chat.id }])],
 	})) ?? course;
+}
+
+/**
+ * Place a unit session's graph source in the course's folder, created at
+ * the first start (named after the course) and reused after; recreated if
+ * the learner removed it. A source the learner already placed stays where
+ * it is. Presentation only: a failure is logged and never blocks the start.
+ * Returns the course's folder id.
+ */
+function placeUnitSource(course: CourseRecord, chatId: string): string | undefined {
+	try {
+		const state = stores.sourceOrganizationStore.read();
+		if (placementOf(state, chatId)) return course.sourceFolderId;
+		let next = state;
+		let folderId = course.sourceFolderId && state.folders.some((folder) => folder.id === course.sourceFolderId) ? course.sourceFolderId : undefined;
+		if (!folderId) {
+			const folder = { id: `folder_${crypto.randomUUID()}`, createdAt: new Date().toISOString() };
+			next = applyOrganizationAction(next, { action: "create-folder", name: course.title, parentId: null }, new Set(), folder);
+			folderId = folder.id;
+		}
+		next = applyOrganizationAction(next, { action: "move", kind: "source", id: chatId, parentId: folderId }, new Set([chatId]), { id: "", createdAt: "" });
+		stores.sourceOrganizationStore.write(next);
+		return folderId;
+	} catch (error) {
+		console.error(`[course ${course.id}] placing ${chatId} in the course's graph folder failed:`, error);
+		return course.sourceFolderId;
+	}
 }
 
 /**
@@ -266,9 +297,11 @@ export function startUnit(courseId: string, unitId: string): { ok: true; chatId:
 	const link: ChatCourseLink = { role: "unit", courseId, unitId };
 	const chat = stores.chatStore.createChat(unitSessionTitle(course, index + 1, unit), undefined, link);
 	prepareUnitSession(chat, course, unit);
+	const sourceFolderId = placeUnitSource(course, chat.id);
 	const at = new Date().toISOString();
 	courseStore.update(courseId, (current) => ({
 		...current,
+		...(sourceFolderId ? { sourceFolderId } : {}),
 		units: current.units.map((candidate) => candidate.id === unitId ? { ...candidate, status: "in-progress", chatId: chat.id } : candidate),
 		evidence: [...current.evidence, { type: "unit-started", id: `unit-started:${chat.id}`, at, unitId, chatId: chat.id }],
 	}));
@@ -277,22 +310,80 @@ export function startUnit(courseId: string, unitId: string): { ok: true; chatId:
 
 // ─── session pages ──────────────────────────────────────────────────────────
 
+/** A unit session's course and unit. Null when the session isn't a member
+ *  (no unit link, the course is gone, or another session holds the unit);
+ *  a refusal when the course record can't be read. */
+function unitMembership(record: ChatRecord): { course: CourseRecord; unit: CourseUnit } | CourseRefusal | null {
+	if (record.course?.role !== "unit") return null;
+	const { courseId, unitId } = record.course;
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course.status === 404 ? null : course;
+	const unit = course.units.find((candidate) => candidate.id === unitId);
+	if (!unit || unit.chatId !== record.id) return null;
+	return { course, unit };
+}
+
 /** What a session's page shows about its course; undefined outside one. */
 export function sessionCourseView(record: ChatRecord): SessionCourseView | undefined {
 	if (record.course?.role === "setup") return { role: "setup", courseId: setupCourseId(record) ?? null };
-	return undefined;
+	const membership = unitMembership(record);
+	if (!membership || isRefusal(membership)) return undefined;
+	return unitSessionView(membership.course, membership.unit.id, record.id);
+}
+
+/**
+ * Record a unit teacher's goal_reached signal: the unit's goalReachedAt
+ * (kept from the first signal until a reopen clears it) and a goal-reached
+ * event per call. Returns null, or the refusal the model reads.
+ */
+export function recordGoalReached(courseId: string, unitId: string, chatId: string, toolCallId: string, summary: string): string | null {
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return `The goal couldn't be recorded: ${course.error}`;
+	const unit = course.units.find((candidate) => candidate.id === unitId);
+	if (!unit || unit.chatId !== chatId) return "The goal couldn't be recorded: this session is no longer a unit of the course.";
+	if (unit.status === "completed") return "The goal couldn't be recorded: this unit is already completed.";
+	const at = new Date().toISOString();
+	const id = `goal-reached:${chatId}:${toolCallId}`;
+	courseStore.update(courseId, (current) => ({
+		...current,
+		units: current.units.map((candidate) => candidate.id === unitId ? { ...candidate, goalReachedAt: candidate.goalReachedAt ?? at } : candidate),
+		evidence: current.evidence.some((event) => event.id === id) ? current.evidence
+			: [...current.evidence, { type: "goal-reached", id, at, unitId, chatId, summary }],
+	}));
+	return null;
+}
+
+/**
+ * A unit session's per-turn course, for the agent: the course context
+ * (composed fresh from the record) and the goal_reached hook. Undefined
+ * outside a unit session.
+ */
+export function unitTurnCourse(record: ChatRecord): { context: string; recordGoalReached: (summary: string, toolCallId: string) => string | null } | undefined {
+	const membership = unitMembership(record);
+	if (!membership || isRefusal(membership)) return undefined;
+	const { course, unit } = membership;
+	return {
+		context: unitCourseContext(course, unit.id),
+		recordGoalReached: (summary, toolCallId) => recordGoalReached(course.id, unit.id, record.id, toolCallId, summary),
+	};
 }
 
 // ─── the turn handler's gate ────────────────────────────────────────────────
 
 /**
  * Whether a course session takes new main input. A setup session closes
- * once its course exists. Learner input gets 409; a job result's wake gets
- * 410, which leaves the delivery pending instead of retrying it.
+ * once its course exists, and a unit session while its unit is completed
+ * or its course record can't be read. Learner input gets 409; a job
+ * result's wake gets 410, which leaves the delivery pending instead of
+ * retrying it.
  */
 export function courseInputRefusal(record: ChatRecord, inputType: string): { status: number; error: string } | null {
+	const status = inputType === "steers" ? 410 : 409;
 	if (record.course?.role === "setup" && setupCourseId(record)) {
-		return { status: inputType === "steers" ? 410 : 409, error: "This course has been created. Continue in its units." };
+		return { status, error: "This course has been created. Continue in its units." };
 	}
+	const membership = unitMembership(record);
+	if (membership && isRefusal(membership)) return { status, error: `This session's course can't be read: ${membership.error}` };
+	if (membership?.unit.status === "completed") return { status, error: "This unit is completed. Reopen it to continue." };
 	return null;
 }

@@ -1,6 +1,6 @@
 # Plan 04: courses and units (roadmap step 4, course phase 1)
 
-**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–3 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation (see Outcome). Items 4–9 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–4 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation (see Outcome). Items 5–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -635,3 +635,48 @@ The full gate also exposed two inherited timing assumptions. The atomic-write te
 - Changes remain uncommitted on `phase1-courses`. No dependency or storage-version changes, paid model calls, real learning data, releases, or packaging changes. The inherited development rebuild/chunk-load issue remains; the final runtime evidence is from the production server.
 
 No known in-scope review findings remain. The remaining plan items are still pending, including unit context and prerequisite warnings, completion/handoffs, evidence capture, course revisions, unit/course notes, and course deletion.
+
+### Item 4 (2026-11-13)
+
+- **Built:**
+  - **Starting a unit** (`startUnit`, behind `POST /api/courses/:id/units/:unitId/start`) now also places the session's graph source in the course's folder. The folder is created at the first start, named after the course, recorded as `sourceFolderId`, and reused after. The interrupted-start recovery from the checkpoint review places adopted sessions the same way.
+  - **The course section:** each turn of a unit session appends a course section to the prober's or teacher's system prompt, composed fresh from the record (`unitCourseContext` in core, `unitTurnCourse` in the course service, the `course` build option in `teacher-agent.ts`). It holds the approved unit doctrine for that agent, the course title and goal, this unit's number, title, goal and starting point (labeled as the setup probe's read), every unit on one line, the full handoffs of the unit's direct and indirect prerequisites, and the decisions on this unit's own proposals. The compaction estimate counts it.
+  - **`goal_reached`** for the unit teacher, with the approved description. It records `goalReachedAt` and a `goal-reached` event, doesn't end the turn, and can be repeated. `goal_reached` joins the reserved conversation tool names.
+  - **Closed units:** main input to a completed unit is refused with 409 "This unit is completed. Reopen it to continue." (a job delivery's wake gets 410, as for a closed setup). The chat page shows the closed band with that sentence and "Open course".
+  - **Unit chrome:** the top bar reads "<course title> › <n>. <unit title>" and links to the overview; the transcript shows "Unit <n> started" for the opening marker.
+  - **The prerequisite warning** before starting a unit whose direct prerequisites aren't all completed, with the approved wording, Cancel and "Start anyway" (`prerequisiteWarning` in core).
+  - **Golden fixture:** a unit session record (`chats/chat_mwflszug_5a1f29dc.json`), and `unit-start` joins the golden marker coverage.
+- **Agent-selected:**
+  - **Section format:** a "# Course context" heading after the doctrine, units listed as "<n>. <id>: <title> (<status>; builds on …)", "(…, this unit)" on the session's own unit, and "Starting point (the setup probe's read): none recorded" when a unit has none. A prerequisite without a handoff reads "Unit <n> · <title>: <status>, no handoff yet."; a reopened one reads "Unit <n> · <title> was reopened and is in progress. Its last handoff:" followed by that handoff. Own proposals list as "- <Status>: <reason>" with indented change lines; a pending one reads "Pending (the learner hasn't decided)". The section closes the app's own prompt, before plugin instructions.
+  - **Membership:** only the session the course records for a unit gets the section and the unit chrome. A crash's duplicate stays an ordinary session. If the course record can't be read, the unit's input is refused with "This session's course can't be read: <reason>" instead of running without its course.
+  - **`goal_reached` details:** the summary is collapsed to one line. The first signal's time is kept until a reopen clears it, and every call records its own event (id `goal-reached:<chatId>:<toolCallId>`). The model reads "Recorded. The learner can complete the unit whenever he's ready; the conversation continues.", or the refusal when the unit was completed meanwhile. The live activity reads "Recording the goal…".
+  - **Transcript line for the signal:** a quiet "Goal reached" line with the summary under it.
+  - **Folder placement:** a source the learner already placed stays where it is, a removed course folder is recreated at the next start, and a placement failure is logged without blocking the start. The folder keeps its name when the course is renamed.
+  - **Chat page:** the unit's view stays live through `courses-changed` (it refetches the course rather than refreshing the page mid-turn). F2 doesn't rename a unit session.
+  - **Warning dialog:** focus starts on Cancel. Several unfinished prerequisites read "units 2 and 3, which aren't completed yet".
+- **Assumption checked (human decision):** the prerequisite handoffs exceed the plan's "few thousand tokens" estimate. For the last unit of a fully chained course, typical handoffs (10 topics, one model-written note per list) measure about 5k tokens at 15 units and 6.7k at 20; with every model-written list full at the 200-character cap, 9k and 12k. Asked, the human kept the section uncapped, as planned.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Full suite: 5,517 pass, 0 fail, 4 skipped.
+  - New: `tests/course-units.test.tsx` (19). It covers:
+    - start (the record, placement, folder reuse and recreation, a learner-placed source left alone, adoption placement, a refused second start, and the opening turn prepared as a foreground request);
+    - the section against a hand-written expected text (only transitive prerequisites' handoffs, in full; an unrelated unit on its line only; own proposals only), no-handoff and reopened prerequisites;
+    - the prober's and teacher's prompts through the turn handler, with the section changing on the next turn after a prerequisite is reopened, and absent from a standalone session and a duplicate;
+    - `goal_reached` recorded, non-terminating and repeatable, and refused once the unit is completed;
+    - the completed-unit and unreadable-course gates;
+    - the warning wording and dialog body, the breadcrumb, the quiet lines, and the closed band.
+  - Golden suite: the unit record parses, flattens to a legal wire, and carries its link, opening marker and successful `goal_reached`.
+  - **Browser check** (not required by the plan for this item; done because it changes the UI): the dev server on a scratch profile with the fake keyless endpoint, driven in Electron 44, in Ivory and Default.
+    - **Flow:** setup, Create course, then unit 1. The top bar read "Linear algebra › 1. Vectors and span" and linked to the overview; "Unit 1 started" showed. The prober concluded and the probe's handoff woke the teacher, which planned and called `goal_reached`. "Goal reached" showed with its summary, and the course recorded `goalReachedAt` and the event.
+    - **Interactions:** F2 opened no rename. On the overview, Start on unit 3 showed "Unit 3 builds on unit 2 (Linear maps), which isn't completed yet. Start anyway?". Cancel closed it; "Start anyway" opened unit 3.
+    - **What the endpoint received:** the unit prober's requests carried the prober unit doctrine and the course section, and the teacher's carried the teacher doctrine with `goal_reached` among its tools. Unit 3's section listed both prerequisites as "no handoff yet". Setup requests had no course section.
+    - **Console:** only the dictation token's expected 503s. The first light-theme run timed out while the dev server compiled its first routes; the rerun passed.
+    - **Screenshots:** `08-unit1-start`, `09-unit1-goal-reached`, `10-prerequisite-warning`, `11-unit3-chat` (light and dark) in the session's scratch gallery.
+  - **Deviation:** the plan asks for the opening turn as "a foreground request on a subscription-shaped fake". The test asserts the prepared request's purpose (`callPurpose.background === false`), which is what the subscription gate reads, on the faux engine, rather than standing up the desktop subscription bridge.
+- **Golden fixture:** written by the real course service and turn handler against a scratch copy of the golden directory, with a scripted (faux) model. Only the chat record was copied in. The existing golden course record was left untouched (its unit 3 still reads not started), so reading the pair through the course service adopts the session as an interrupted start; the fixture README says so.
+- **Known limits until later items:**
+  - The teacher's approved doctrine names `propose_course_changes`, which arrives with item 7. Until then a call to it fails as an unknown tool.
+  - Notes written in a unit session are still stored in the standalone notes folder; item 8's resolver moves unit notes under the course.
+  - A completed unit can't occur until item 6 adds completion, so the closed band and the 409 are covered by tests only.
+- **Human checks owed:** none required by the plan for this item (the next checkpoint follows item 6).
+
