@@ -1,5 +1,7 @@
 # Desktop builds and releases
 
+> **Fork note:** this fork removed `.github/workflows/release.yml` and `notify-website.yml` and builds only for Linux in CI. The release sections below describe upstream's process. See [docs/fork/README.md](fork/README.md).
+
 This is a maintainer reference. For installation and normal use, start with [Getting started](getting-started.md).
 
 ## Platforms and prerequisites
