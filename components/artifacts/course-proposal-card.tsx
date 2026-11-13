@@ -159,12 +159,14 @@ function EditableProposal({ proposal, toolCallId, setup }: { proposal: CourseDra
 			<div className="mt-2 space-y-1">
 				<input
 					aria-label="Course title"
+					disabled={creating}
 					value={draft.title}
 					onChange={(e) => edit({ ...draft, title: e.target.value })}
 					className={cn(EDITOR_FIELD, "py-0.5 font-title text-lg leading-snug")}
 				/>
 				<textarea
 					aria-label="Course goal"
+					disabled={creating}
 					rows={1}
 					value={draft.goal}
 					onChange={(e) => edit({ ...draft, goal: e.target.value })}

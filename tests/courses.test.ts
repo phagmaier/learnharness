@@ -413,4 +413,27 @@ describe("course store", () => {
 		assert.equal(courseStore.remove(id), false);
 		assert.equal(courseStore.get(id), null);
 	});
+
+	it("isolates structurally damaged records without rewriting them or another course", () => {
+		const other = { ...sampleCourse(), id: "course_other" };
+		courseStore.create(other);
+		const otherBytes = fs.readFileSync(file(other.id, "course.json"), "utf-8");
+		const variants = [
+			{ id: other.id }, { title: null }, { units: [null] },
+			{ units: [{ ...other.units[0]!, status: "broken" }] },
+			{ units: [{ ...other.units[0]!, prerequisites: null }] },
+			{ version: 0 }, { version: null },
+		];
+		for (const [index, fields] of variants.entries()) {
+			const id = `course_damaged_${index}`;
+			fs.mkdirSync(path.dirname(file(id, "course.json")), { recursive: true });
+			const bytes = JSON.stringify({ ...sampleCourse(), id, ...fields });
+			fs.writeFileSync(file(id, "course.json"), bytes);
+			assert.throws(() => courseStore.get(id), CourseUnreadableError, `variant ${index}`);
+			assert.throws(() => courseStore.update(id, (c) => ({ ...c, title: "x" })), CourseUnreadableError);
+			assert.equal(fs.readFileSync(file(id, "course.json"), "utf-8"), bytes);
+			assert.ok(courseStore.list().unreadable.includes(id));
+		}
+		assert.equal(fs.readFileSync(file(other.id, "course.json"), "utf-8"), otherBytes);
+	});
 });

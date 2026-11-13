@@ -530,7 +530,7 @@ function CourseMemberRow({ row, active, kbdSelected, onOpen, onContextMenu }: {
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-accent",
 				active && "bg-accent",
 				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
-				muted && "text-muted-foreground/70",
+				muted && "text-muted-foreground",
 			)}
 		>
 			<SessionStatus busy={!!row.chat && (row.chat.busy || row.chat.compacting)} />
@@ -746,6 +746,7 @@ function SessionsSidebar() {
 	const [ctxGrouped, setCtxGrouped] = useState(false);
 	const [ctxCourseId, setCtxCourseId] = useState<string | null>(null);
 	const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null);
+	const [courseRenameError, setCourseRenameError] = useState<string | null>(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
@@ -765,16 +766,21 @@ function SessionsSidebar() {
 	};
 	const commitCourseRename = useCallback(async (courseId: string, next: string) => {
 		setRenamingCourseId(null);
+		setCourseRenameError(null);
 		const title = next.trim();
 		if (!title) return;
 		try {
 			const res = await fetch(`/api/courses/${encodeURIComponent(courseId)}`, {
 				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
 			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({})) as { error?: string };
+				setCourseRenameError(body.error ?? "Couldn't rename the course. Try again.");
+				return;
+			}
 			setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, title } : c)));
-		} catch (err) {
-			console.error("course rename failed:", err);
+		} catch {
+			setCourseRenameError("Couldn't reach the app. Try again.");
 		}
 	}, []);
 
@@ -1034,6 +1040,7 @@ function SessionsSidebar() {
 				</div>
 
 				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
+					{courseRenameError && <p role="alert" className="mb-2 px-2 text-xs text-destructive">{courseRenameError}</p>}
 					{shown === null ? (
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					) : shown.length === 0 ? (

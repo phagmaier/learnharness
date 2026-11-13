@@ -244,6 +244,19 @@ describe("creating a course", () => {
 		assert.equal(courseStore.get(body.courseId)!.units[0]!.chatId, body.chatId);
 	});
 
+	it("validates proposal keys before converting them into stored unit ids", async () => {
+		const setupId = await proposedSetup();
+		const duplicate = editedUnits();
+		duplicate[1] = { ...duplicate[1]!, key: duplicate[0]!.key, prerequisites: [] };
+		const unknown = editedUnits();
+		unknown[1] = { ...unknown[1]!, prerequisites: ["vectors-and-span"] };
+		for (const units of [duplicate, unknown]) {
+			const result = courses.createCourseFromSetup({ setupChatId: setupId, toolCallId: "prop-2", title: "t", goal: "g", units });
+			assert.equal(!result.ok && result.status, 400);
+		}
+		assert.equal(courseStore.list().courses.filter((c) => c.setupChatId === setupId).length, 0);
+	});
+
 	it("adopts a course whose setup link a crash left unwritten", async () => {
 		const setupId = await proposedSetup();
 		const out = courses.createCourseFromSetup({ setupChatId: setupId, toolCallId: "prop-2", title: "t", goal: "g", units: editedUnits() });

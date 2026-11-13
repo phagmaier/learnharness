@@ -164,12 +164,13 @@ describe("writeFileAtomicSync", () => {
 		assert.deepEqual(temps(file), []);
 	});
 
-	it("folders in the way fail at once", () => {
+	it("folders in the way are refused without retrying", (t) => {
 		const file = target("record.json");
 		fs.mkdirSync(file);
-		const started = Date.now();
+		const rename = t.mock.method(fs, "renameSync");
 		assert.throws(() => writeFileAtomicSync(file, "new"));
-		assert.ok(Date.now() - started < 50, "no waiting on folders");
+		assert.ok(rename.mock.callCount() <= 1, "a directory error isn't a transient sharing violation");
+		assert.ok(fs.statSync(file).isDirectory(), "the directory is untouched");
 		assert.deepEqual(temps(file), []);
 	});
 

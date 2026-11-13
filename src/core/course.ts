@@ -115,6 +115,8 @@ export interface UnitDraft {
  */
 export function applyUnitEdit(before: readonly CourseUnit[], drafts: readonly UnitDraft[]): UnitsOutcome {
 	const existing = new Map(before.map((unit) => [unit.id, unit]));
+	const unknown = drafts.filter((draft) => draft.id !== undefined && !existing.has(draft.id));
+	if (unknown.length > 0) return { ok: false, problems: unknown.map((draft) => `There is no unit "${draft.id}" in the course.`) };
 	const taken = new Set(before.map((unit) => unit.id));
 	const ids = drafts.map((draft, index) => {
 		if (draft.id && existing.has(draft.id)) return draft.id;

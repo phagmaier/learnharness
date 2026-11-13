@@ -8,8 +8,8 @@
  * back-pointer) before the course records it, and the setup session is
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
-import type { ChatCourseLink, ChatRecord, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
-import { applyUnitEdit, latestProposalCallId, uniqueUnitId, unitEditSummary, unitListProblems, type UnitDraft } from "../core/course.ts";
+import type { ChatCourseLink, ChatRecord, ChatSummary, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
+import { applyUnitEdit, draftProblems, latestProposalCallId, uniqueUnitId, unitEditSummary, type UnitDraft } from "../core/course.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
 import { stampSessionModel } from "./chats.ts";
@@ -30,7 +30,7 @@ function refusal(status: number, error: string, problems?: string[]): CourseRefu
 export function readCourse(courseId: string): CourseRecord | CourseRefusal {
 	try {
 		const record = courseStore.get(courseId);
-		return record ?? refusal(404, "Unknown course");
+		return record ? adoptUnitSessions(record) : refusal(404, "Unknown course");
 	} catch (error) {
 		if (error instanceof CourseUnreadableError) return refusal(409, error.message);
 		if (error instanceof Error && error.message.startsWith("Invalid course id")) return refusal(404, "Unknown course");
@@ -119,13 +119,11 @@ export function createCourseFromSetup(body: unknown): { ok: true; courseId: stri
 	if (setupCourseId(record)) return refusal(409, "This course has already been created.");
 	if (isTurnRunning(setupChatId)) return refusal(409, TURN_RUNNING);
 	if (latestProposalCallId(record.messages) !== toolCallId) return refusal(409, "This proposal was replaced. Create the course from the latest one.");
-	const units = unitsFromDrafts(drafts);
-	const problems = [
-		...(title ? [] : ["The course needs a title."]),
-		...(goal ? [] : ["The course needs a goal."]),
-		...unitListProblems(units),
-	];
+	// Validate keys before remapping them: duplicate keys and unknown
+	// references must not accidentally resolve to a generated title slug.
+	const problems = draftProblems({ title, goal, units: drafts.map((draft) => ({ ...draft, startingPoint: draft.startingPoint ?? "" })) });
 	if (problems.length > 0) return refusal(400, problems[0]!, problems);
+	const units = unitsFromDrafts(drafts);
 
 	const now = new Date().toISOString();
 	const course: CourseRecord = {
@@ -143,9 +141,10 @@ export function createCourseFromSetup(body: unknown): { ok: true; courseId: stri
 /** The sidebar's courses, plus ids of course folders that can't be read. */
 export function listCourseSummaries(): { courses: CourseSummary[]; unreadable: string[] } {
 	const { courses, unreadable } = courseStore.list();
+	const chats = courses.some((course) => course.units.some((unit) => unit.status === "not-started")) ? stores.chatStore.listChats() : [];
 	return {
 		unreadable,
-		courses: courses.map((course) => ({
+		courses: courses.map((course) => adoptUnitSessions(course, chats)).map((course) => ({
 			id: course.id,
 			title: course.title,
 			createdAt: course.createdAt,
@@ -159,11 +158,7 @@ export function listCourseSummaries(): { courses: CourseSummary[]; unreadable: s
 
 /** Rename a course; the sessions keep their titles. */
 export function renameCourse(courseId: string, rawTitle: unknown): CourseRecord | CourseRefusal {
-	const title = typeof rawTitle === "string" ? rawTitle.trim() : "";
-	if (!title) return refusal(400, "The course needs a title.");
-	const course = readCourse(courseId);
-	if (isRefusal(course)) return course;
-	return courseStore.update(courseId, (current) => ({ ...current, title })) ?? refusal(404, "Unknown course");
+	return updateCourse(courseId, { title: rawTitle });
 }
 
 function readUnitDrafts(raw: unknown): UnitDraft[] | null {
@@ -190,25 +185,31 @@ function readUnitDrafts(raw: unknown): UnitDraft[] | null {
  * freely. A real change records a learner revision.
  */
 export function editCourseUnits(courseId: string, rawUnits: unknown): CourseRecord | CourseRefusal {
-	const drafts = readUnitDrafts(rawUnits);
-	if (!drafts) return refusal(400, "Invalid unit list");
+	return updateCourse(courseId, { units: rawUnits });
+}
+
+/** Validate the whole request before committing a rename and/or unit edit. */
+export function updateCourse(courseId: string, input: { title?: unknown; units?: unknown; expectedUpdatedAt?: unknown }): CourseRecord | CourseRefusal {
+	const title = input.title === undefined ? undefined : typeof input.title === "string" ? input.title.trim() : "";
+	if (title === "") return refusal(400, "The course needs a title.");
+	const drafts = input.units === undefined ? undefined : readUnitDrafts(input.units);
+	if (drafts === null) return refusal(400, "Invalid unit list");
 	const course = readCourse(courseId);
 	if (isRefusal(course)) return course;
-	const outcome = applyUnitEdit(course.units, drafts);
+	if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== course.updatedAt) {
+		return refusal(409, "This course changed while you were editing. Cancel and reopen Edit units to load the latest version.");
+	}
+	const outcome = drafts ? applyUnitEdit(course.units, drafts) : { ok: true as const, units: course.units };
 	if (!outcome.ok) return refusal(400, outcome.problems[0]!, outcome.problems);
 	const changes = unitEditSummary(course.units, outcome.units);
-	if (changes.length === 0) return course;
+	if (changes.length === 0 && (title === undefined || title === course.title)) return course;
 	const at = new Date().toISOString();
-	return courseStore.update(courseId, (current) => {
-		// Re-apply against the stored record: the drafts never carry status.
-		const fresh = applyUnitEdit(current.units, drafts);
-		if (!fresh.ok) return current;
-		return {
-			...current,
-			units: fresh.units,
-			evidence: [...current.evidence, { type: "revision", id: `revision:learner:${at}`, at, source: "learner", decision: "accepted", changes }],
-		};
-	}) ?? refusal(404, "Unknown course");
+	return courseStore.update(courseId, (current) => ({
+		...current,
+		title: title ?? current.title,
+		units: outcome.units,
+		evidence: changes.length === 0 ? current.evidence : [...current.evidence, { type: "revision", id: `revision:learner:${crypto.randomUUID()}`, at, source: "learner", decision: "accepted", changes }],
+	})) ?? refusal(404, "Unknown course");
 }
 
 // ─── units ──────────────────────────────────────────────────────────────────
@@ -216,6 +217,38 @@ export function editCourseUnits(courseId: string, rawUnits: unknown): CourseReco
 /** The unit session's title: "<course title> · <n>. <unit title>". */
 export function unitSessionTitle(course: Pick<CourseRecord, "title">, number: number, unit: Pick<CourseUnit, "title">): string {
 	return `${course.title} · ${number}. ${unit.title}`;
+}
+
+/** Finish an interrupted start before publishing membership. Existing
+ * transcripts and model choices survive; only an empty chat needs a seed. */
+function prepareUnitSession(chat: ChatRecord, course: CourseRecord, unit: CourseUnit): void {
+	if (chat.messages.length > 0) return;
+	if (!chat.settings?.model) stampSessionModel(chat.id);
+	stores.chatStore.saveMessages(chat.id, [newUnitStartMessage({ courseId: course.id, unitId: unit.id, number: course.units.indexOf(unit) + 1, title: unit.title })]);
+}
+
+/** Recover a chat created before the course write. Never replace an
+ * already-published session or delete a transcript during recovery. */
+function adoptUnitSessions(course: CourseRecord, summaries?: readonly ChatSummary[]): CourseRecord {
+	const waiting = course.units.filter((unit) => unit.status === "not-started");
+	if (waiting.length === 0) return course;
+	const chats = summaries ?? stores.chatStore.listChats();
+	const adopted = new Map<string, ChatRecord>();
+	for (const unit of waiting) {
+		const candidate = chats.filter((chat) => chat.course?.role === "unit" && chat.course.courseId === course.id && chat.course.unitId === unit.id)
+			.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))[0];
+		const chat = candidate && stores.chatStore.getChat(candidate.id);
+		if (!chat) continue;
+		prepareUnitSession(chat, course, unit);
+		adopted.set(unit.id, chat);
+	}
+	if (adopted.size === 0) return course;
+	return courseStore.update(course.id, (current) => ({
+		...current,
+		units: current.units.map((unit) => adopted.has(unit.id) ? { ...unit, status: "in-progress", chatId: adopted.get(unit.id)!.id } : unit),
+		evidence: [...current.evidence, ...[...adopted].flatMap(([unitId, chat]) => current.evidence.some((event) => event.id === `unit-started:${chat.id}`) ? []
+			: [{ type: "unit-started" as const, id: `unit-started:${chat.id}`, at: chat.createdAt, unitId, chatId: chat.id }])],
+	})) ?? course;
 }
 
 /**
@@ -232,8 +265,7 @@ export function startUnit(courseId: string, unitId: string): { ok: true; chatId:
 	if (unit.status !== "not-started") return refusal(409, "This unit has already started.");
 	const link: ChatCourseLink = { role: "unit", courseId, unitId };
 	const chat = stores.chatStore.createChat(unitSessionTitle(course, index + 1, unit), undefined, link);
-	stampSessionModel(chat.id);
-	stores.chatStore.saveMessages(chat.id, [newUnitStartMessage({ courseId, unitId, number: index + 1, title: unit.title })]);
+	prepareUnitSession(chat, course, unit);
 	const at = new Date().toISOString();
 	courseStore.update(courseId, (current) => ({
 		...current,

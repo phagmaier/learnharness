@@ -19,14 +19,22 @@ function request(names: string[]) {
 	return new Request("http://localhost/api/graph/import", { method: "POST", body: form });
 }
 
-it("route keeps three-worker batching, request positions and mixed per-file outcomes/config details", async () => {
+it("route keeps three-worker batching, request positions and mixed per-file outcomes/config details", { timeout: 10000 }, async () => {
 	let active = 0;
 	let peak = 0;
+	let started = 0;
+	const firstWave = Promise.withResolvers<void>();
+	const releaseSlow = Promise.withResolvers<void>();
+	const overtaken = Promise.withResolvers<void>();
 	const outcomeOf: Record<string, NotesImportError["outcome"]> = { "failed.md": "failed", "partial.md": "partial", "aborted.md": "aborted", "busy.md": "busy" };
 	extraction.importNotes = async ({ filePath }) => {
 		active++; peak = Math.max(peak, active);
+		started++;
+		if (started === 3) firstWave.resolve();
+		if (started === 4) overtaken.resolve();
 		try {
-			await new Promise((resolve) => setTimeout(resolve, filePath === "slow.md" ? 25 : 1));
+			await firstWave.promise;
+			if (filePath === "slow.md") await releaseSlow.promise;
 			if (filePath === "models.md") throw new ModelsNotConfiguredError(["cheap"]);
 			if (filePath === "key.md") throw new ProviderKeyMissingError("openai", ["cheap"]);
 			if (filePath in outcomeOf) throw new NotesImportError(outcomeOf[filePath]!, { nodes: 2, chains: 1 }, `synthetic ${filePath}`);
@@ -35,7 +43,12 @@ it("route keeps three-worker batching, request positions and mixed per-file outc
 		} finally { active--; }
 	};
 	const names = ["slow.md", "same.md", "same.md", "failed.md", "partial.md", "aborted.md", "busy.md", "models.md", "key.md", "unknown.md"];
-	const response = await POST(request(names));
+	const pending = POST(request(names));
+	// Hold the first import until a completed sibling has freed a worker
+	// for the fourth. Out-of-order completion cannot depend on disk speed.
+	await overtaken.promise;
+	releaseSlow.resolve();
+	const response = await pending;
 	assert.equal(response.status, 200);
 	const { results } = await response.json();
 	assert.equal(peak, 3);

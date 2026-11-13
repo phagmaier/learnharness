@@ -1,4 +1,4 @@
-import { editCourseUnits, isCourseRefusal, readCourse, renameCourse } from "@/src/server";
+import { isCourseRefusal, readCourse, updateCourse } from "@/src/server";
 
 /**
  * One course (fork plan 04).
@@ -9,7 +9,8 @@ import { editCourseUnits, isCourseRefusal, readCourse, renameCourse } from "@/sr
  *       list (existing units by id; new ones without, building on other
  *       new ones by `new:<index>`). 400 with `problems` when the edit breaks
  *       a rule (a started unit can't be removed; units build only on
- *       earlier units).
+ *       earlier units). An optional expectedUpdatedAt refuses stale edits
+ *       with 409. A combined title/units write validates both before saving.
  */
 type Params = { params: Promise<{ id: string }> };
 
@@ -22,12 +23,11 @@ export async function GET(_req: Request, ctx: Params) {
 
 export async function PUT(req: Request, ctx: Params) {
 	const { id } = await ctx.params;
-	const body = (await req.json().catch(() => null)) as { title?: unknown; units?: unknown } | null;
+	const body = (await req.json().catch(() => null)) as { title?: unknown; units?: unknown; expectedUpdatedAt?: unknown } | null;
 	if (!body || typeof body !== "object" || (body.title === undefined && body.units === undefined)) {
 		return Response.json({ error: "Body must carry a title or units" }, { status: 400 });
 	}
-	let result = body.title !== undefined ? renameCourse(id, body.title) : readCourse(id);
-	if (!isCourseRefusal(result) && body.units !== undefined) result = editCourseUnits(id, body.units);
+	const result = updateCourse(id, body);
 	if (isCourseRefusal(result)) {
 		return Response.json({ error: result.error, ...(result.problems ? { problems: result.problems } : {}) }, { status: result.status });
 	}

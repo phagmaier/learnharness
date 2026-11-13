@@ -36,7 +36,7 @@ export const UNIT_STATUS_LABEL: Record<CourseUnit["status"], string> = {
 const ACTION = "rounded-md border px-2.5 py-1 font-ui text-[11px] uppercase tracking-wider transition-colors hover:bg-accent disabled:opacity-50";
 
 /** The Overview | Notes tabs. */
-export function CourseTabs({ courseId, active }: { courseId: string; active: "overview" | "notes" }) {
+export function CourseTabs({ courseId, active, notesAvailable = false }: { courseId: string; active: "overview" | "notes"; notesAvailable?: boolean }) {
 	const tab = (id: "overview" | "notes", label: string, href: string) => (
 		<Link
 			href={href}
@@ -53,7 +53,9 @@ export function CourseTabs({ courseId, active }: { courseId: string; active: "ov
 	return (
 		<nav className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" aria-label="Course views">
 			{tab("overview", "Overview", `/course/${encodeURIComponent(courseId)}`)}
-			{tab("notes", "Notes", `/course/${encodeURIComponent(courseId)}/notes`)}
+			{notesAvailable ? tab("notes", "Notes", `/course/${encodeURIComponent(courseId)}/notes`) : (
+				<button type="button" disabled data-testid="course-tab-notes" title="Course notes aren't available yet." className="rounded-sm px-2.5 py-0.5 text-[11px] uppercase tracking-wider text-muted-foreground/60">Notes</button>
+			)}
 		</nav>
 	);
 }
@@ -83,9 +85,9 @@ export function UnitCard({
 			data-status={unit.status}
 			className="scroll-mt-4 rounded-xl border bg-card/60 p-4 target:ring-2 target:ring-ring/60"
 		>
-			<div className="flex items-start gap-3">
+			<div className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 gap-y-2 sm:flex sm:items-start sm:gap-3">
 				<span className="w-5 shrink-0 pt-0.5 text-right font-ui text-sm text-muted-foreground">{number}</span>
-				<div className="min-w-0 flex-1">
+				<div className="min-w-0 flex-1 wrap-anywhere">
 					<div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
 						<h3 className="font-prose text-(length:--lh-prose-size) font-medium">{unit.title}</h3>
 						<span data-testid="unit-status" className={cn(
@@ -97,7 +99,7 @@ export function UnitCard({
 					<p className="mt-0.5 font-prose text-sm">{unit.goal}</p>
 					{unit.startingPoint && <p className="mt-0.5 font-prose text-sm text-muted-foreground">{unit.startingPoint}</p>}
 				</div>
-				<div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+				<div className="col-start-2 flex shrink-0 flex-wrap gap-1.5 sm:justify-end">
 					{unit.status === "not-started" && (
 						<button type="button" data-testid="unit-start" className={ACTION} disabled={starting || !onStart} onClick={onStart}>
 							{starting ? "Starting…" : "Start unit"}
@@ -122,6 +124,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 	const [renaming, setRenaming] = useState(false);
 	const [titleDraft, setTitleDraft] = useState("");
 	const [editRows, setEditRows] = useState<UnitDraftRow[] | null>(null);
+	const editVersion = useRef<string | null>(null);
 	const [editProblems, setEditProblems] = useState<string[]>([]);
 	const [saving, setSaving] = useState(false);
 	const counter = useRef(0);
@@ -138,12 +141,13 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 	}, [courseId]);
 	useServerEvent("courses-changed", (payload) => { if (payload.courseId === courseId) void refresh(); });
 	useServerResync(() => void refresh());
-	useEffect(() => { if (renaming) titleRef.current?.select(); }, [renaming]);
+	useEffect(() => { if (renaming) { titleRef.current?.focus(); titleRef.current?.select(); } }, [renaming]);
 
 	const numberOf = useMemo(() => new Map(course.units.map((unit, index) => [unit.id, index + 1])), [course.units]);
 
 	const commitRename = async () => {
 		setRenaming(false);
+		setError(null);
 		const title = titleDraft.trim();
 		if (!title || title === course.title) return;
 		const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}`, {
@@ -151,7 +155,10 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 		}).catch(() => null);
 		const body = response ? ((await response.json().catch(() => ({}))) as { course?: CourseRecord; error?: string }) : null;
 		if (body?.course) setCourse(body.course);
-		else setError(body?.error ?? "Couldn't reach the app. Try again.");
+		else {
+			setError(body?.error ?? "Couldn't reach the app. Try again.");
+			setRenaming(true);
+		}
 	};
 
 	const start = async (unit: CourseUnit) => {
@@ -175,11 +182,16 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 		try {
 			const units = unitDraftsFromRows(editRows, new Set(course.units.map((unit) => unit.id)));
 			const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}`, {
-				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ units }),
+				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ units, expectedUpdatedAt: editVersion.current }),
 			});
 			const body = (await response.json().catch(() => ({}))) as { course?: CourseRecord; error?: string; problems?: string[] };
 			if (body.course) { setCourse(body.course); setEditRows(null); }
-			else setEditProblems(body.problems ?? [body.error ?? "Couldn't save the changes."]);
+			else {
+				setEditProblems(body.problems ?? [body.error ?? "Couldn't save the changes."]);
+				// The live event may have been missed. Keep the draft, but make
+				// Cancel → Edit units reopen the latest saved course.
+				if (response.status === 409) await refresh();
+			}
 		} catch {
 			setEditProblems(["Couldn't reach the app. Try again."]);
 		} finally {
@@ -193,6 +205,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 		<div className="flex h-dvh">
 			<div className="flex min-w-0 flex-1 flex-col">
 				<TopBar drag={!renaming}>
+					<div className="flex min-w-0 flex-1 flex-col justify-center sm:flex-row sm:items-baseline sm:justify-start sm:gap-3">
 					{renaming ? (
 						<input
 							ref={titleRef}
@@ -217,8 +230,8 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 							{course.title}
 						</button>
 					)}
-					<span data-testid="course-progress" className="shrink-0 font-ui text-xs uppercase tracking-wide text-muted-foreground">{courseProgressLine(course.units)}</span>
-					<div className="min-w-4 flex-1" aria-hidden="true" />
+					<span data-testid="course-progress" className="truncate font-ui text-[10px] uppercase tracking-wide text-muted-foreground sm:shrink-0 sm:text-xs">{courseProgressLine(course.units)}</span>
+					</div>
 					<CourseTabs courseId={courseId} active="overview" />
 				</TopBar>
 				<div className="min-h-0 flex-1 overflow-y-auto">
@@ -233,7 +246,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 								<h2 className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Units</h2>
 								<div className="flex-1" />
 								{!editRows && (
-									<button type="button" data-testid="units-edit" className={cn(ACTION, "flex items-center gap-1.5")} onClick={() => { setEditRows(courseDraftRows(course.units)); setEditProblems([]); }}>
+									<button type="button" data-testid="units-edit" className={cn(ACTION, "flex items-center gap-1.5")} onClick={() => { editVersion.current = course.updatedAt; setEditRows(courseDraftRows(course.units)); setEditProblems([]); }}>
 										<PencilIcon className="size-3" aria-hidden />
 										Edit units
 									</button>

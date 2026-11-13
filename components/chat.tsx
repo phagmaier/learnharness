@@ -600,6 +600,8 @@ export function Chat({
 	const courseSetup = useMemo(() => course?.role === "setup"
 		? { chatId, latestCallId: latestProposal, courseId: course.courseId, busy, navigate: (href: string) => courseRouter.push(href) }
 		: null, [course, chatId, latestProposal, busy, courseRouter]);
+	// A course created in another window closes this setup there too.
+	useServerEvent("courses-changed", () => { if (course?.role === "setup" && !course.courseId) courseRouter.refresh(); });
 	busyRef.current = busy;
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so

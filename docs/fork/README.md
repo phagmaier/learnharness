@@ -110,6 +110,14 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Human, 2026-11-13:* plan 04 is approved as written, including its **Proposed** items (prompt and tool wording, dialog wording, sidebar and overview details).
 
+*Human, 2026-11-13, checkpoint review:* review items 1–3 visually and in code, then make needed fixes and refinements autonomously, without waiting for design approvals. This delegation covers this review; it does not implement the remaining plan items.
+
+*Agent-selected under that delegation:*
+- **Editing:** a stale "Edit units" save is refused with a visible explanation, keeping the local draft and fetching the latest course even if its live update was missed. Cancel and reopen the editor to load that version. Combined title/unit requests validate completely before either change is saved; unknown existing unit ids and invalid proposal keys are refused.
+- **Recovery:** overview and sidebar reads adopt unit sessions left between the chat write and course write, including restoring the opening marker of an empty session. Existing transcripts and model choices survive; start evidence is added once. This brings the recovery part of item 4 forward to protect item 3's already-exposed start route. If old duplicate candidates exist, adopt the oldest deterministically and delete none.
+- **UI:** retain the checkpoint's themes, typography and desktop layout; place progress below the title and unit actions below their text in narrow windows, improve muted-row and editor-label contrast, preserve failed title edits for retry, show sidebar rename failures, and close an already-open setup in other windows when the course is created. The Notes placeholder is disabled until item 8 supplies its page (`CourseTabs` then receives `notesAvailable`).
+- **Implementation:** validate stored record identity and the structures this build reads before rewriting, while retaining unknown fields and evidence types. Course edits share one synchronous service operation, and learner revision ids use UUIDs. Storage versions and dependencies are unchanged.
+
 ## Feature designs
 
 ### Courses, units, and notes

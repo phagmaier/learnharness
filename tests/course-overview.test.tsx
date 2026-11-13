@@ -12,13 +12,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, describe, it, mock } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { parseHTML } from "linkedom";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-course-overview-"));
 process.env.LH_DATA_DIR = TMP;
 
 const { courseStore } = await import("../src/store/courses.ts");
+const { readCourse, startUnit } = await import("../src/server/courses.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 const core = await import("../src/core/index.ts");
 const courseRoute = await import("../app/api/courses/[id]/route.ts");
@@ -128,6 +130,62 @@ describe("the course routes", () => {
 		assert.equal(second.status, 409);
 		assert.equal((await second.json()).error, "This unit has already started.");
 	});
+
+	it("refuses a combined invalid edit without partially renaming the course", async () => {
+		const course = makeCourse();
+		const result = await put(course.id, { title: "Renamed", units: [] });
+		assert.equal(result.status, 400);
+		assert.equal(courseStore.get(course.id)!.title, course.title);
+		const accepted = await put(course.id, { title: "Renamed", units: course.units.map(draft) });
+		assert.equal(accepted.status, 200);
+		assert.equal(courseStore.get(course.id)!.title, "Renamed");
+	});
+
+	it("refuses stale editor snapshots and unknown existing unit ids without discarding newer units", async () => {
+		const course = makeCourse();
+		await put(course.id, { units: [...course.units.map(draft), { title: "Applications", goal: "Use eigenvectors.", prerequisites: ["eigen"] }] });
+		const stale = await put(course.id, { units: course.units.map(draft), expectedUpdatedAt: course.updatedAt });
+		assert.equal(stale.status, 409);
+		assert.equal(courseStore.get(course.id)!.units.at(-1)!.title, "Applications");
+		const unknown = await put(course.id, { units: [...courseStore.get(course.id)!.units.map(draft), { id: "missing", title: "Typo", goal: "g", prerequisites: [] }] });
+		assert.equal(unknown.status, 400);
+		assert.equal(courseStore.get(course.id)!.units.length, 4);
+	});
+
+	it("repairs an empty unit chat left before its opening marker was saved", () => {
+		const course = makeCourse();
+		const chat = chatStore.createChat("Interrupted start", undefined, { role: "unit", courseId: course.id, unitId: "eigen" });
+		const read = readCourse(course.id);
+		assert.ok(!("ok" in read));
+		assert.equal(read.units[2]!.chatId, chat.id);
+		assert.equal(core.needsContinuation(chatStore.getChat(chat.id)!.messages), true);
+		readCourse(course.id);
+		assert.equal(chatStore.getChat(chat.id)!.messages.length, 1);
+		assert.equal(courseStore.get(course.id)!.evidence.filter((e) => e.type === "unit-started").length, 1);
+	});
+
+	it("adopts a unit session after its course write fails, preserving its transcript and one start event", () => {
+		const course = makeCourse();
+		const rename = fs.renameSync;
+		const failure = mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+			if (String(to) === path.join(TMP, "courses", course.id, "course.json")) throw new Error("simulated interruption");
+			return rename(from, to);
+		});
+		try { assert.throws(() => startUnit(course.id, "eigen"), /simulated interruption/); }
+		finally { failure.mock.restore(); }
+		const sessions = () => chatStore.listChats().filter((c) => c.course?.role === "unit" && c.course.courseId === course.id);
+		assert.equal(sessions().length, 1);
+		const chatId = sessions()[0]!.id;
+		const messages = chatStore.getChat(chatId)!.messages;
+		const recovered = readCourse(course.id);
+		assert.ok(!("ok" in recovered));
+		assert.equal(recovered.units[2]!.chatId, chatId);
+		assert.equal(recovered.units[2]!.status, "in-progress");
+		assert.deepEqual(recovered.evidence.filter((e) => e.type === "unit-started").map((e) => e.chatId), [chatId]);
+		assert.deepEqual(chatStore.getChat(chatId)!.messages, messages);
+		assert.equal(startUnit(course.id, "eigen").ok, false);
+		assert.equal(sessions().length, 1);
+	});
 });
 
 it("summarizes a learner's edit one line per change", () => {
@@ -162,8 +220,14 @@ describe("the overview", () => {
 
 	it("has Overview and Notes tabs", () => {
 		const html = renderToStaticMarkup(<CourseTabs courseId="course_1" active="overview" />);
-		assert.ok(html.includes('href="/course/course_1"') && html.includes('href="/course/course_1/notes"'));
+		assert.ok(html.includes('href="/course/course_1"'));
+		assert.match(html, /<button[^>]*disabled=""[^>]*data-testid="course-tab-notes"/);
+		assert.ok(!html.includes('href="/course/course_1/notes"'), "no dead link before the notes page exists");
 		assert.match(html, /aria-current="page"[^>]*>Overview</);
+		const ready = renderToStaticMarkup(<CourseTabs courseId="course_1" active="notes" notesAvailable />);
+		const notes = parseHTML(ready).document.querySelector('[data-testid="course-tab-notes"]');
+		assert.equal(notes?.getAttribute("href"), "/course/course_1/notes");
+		assert.equal(notes?.getAttribute("aria-current"), "page");
 	});
 });
 

@@ -66,7 +66,7 @@ export function UnitListEditor({
 										className={cn(FIELD, "text-sm")}
 									/>
 									<label className="block">
-										<span className="px-2 font-ui text-[10px] uppercase tracking-wider text-muted-foreground/80">Starting point</span>
+										<span className="px-2 font-ui text-[10px] uppercase tracking-wider text-muted-foreground">Starting point</span>
 										<textarea
 											aria-label={`Unit ${index + 1} starting point`}
 											rows={1}
@@ -78,7 +78,7 @@ export function UnitListEditor({
 									</label>
 									{earlier.length > 0 && (
 										<fieldset className="px-2 pt-0.5">
-											<legend className="mb-1 font-ui text-[10px] uppercase tracking-wider text-muted-foreground/80">Builds on</legend>
+											<legend className="mb-1 font-ui text-[10px] uppercase tracking-wider text-muted-foreground">Builds on</legend>
 											<div className="flex flex-wrap gap-x-3 gap-y-1">
 												{earlier.map((other, otherIndex) => (
 													<label key={other.key} className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
