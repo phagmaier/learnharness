@@ -14,9 +14,8 @@ export const MAX_NOTE_BODY_BYTES = 500 * 1024;
 const PAGE_ELEMENTS = ["html", "head", "body", "base", "meta", "link"];
 const EMBEDDING_ELEMENTS = ["iframe", "object", "embed"];
 const REFUSED_TAG = new RegExp(`<\\s*/?\\s*(${[...PAGE_ELEMENTS, ...EMBEDDING_ELEMENTS].join("|")})(?=[\\s/>])`, "gi");
-const EXTERNAL = /^\s*(?:https?:|\/\/|file:)/i;
-const CSS_EXTERNAL = /url\(\s*["']?\s*(?:https?:|\/\/|file:)|@import\b/i;
 const RESOURCE_ATTRIBUTES = new Set(["src", "srcset", "poster", "data", "background", "action", "formaction", "href", "xlink:href"]);
+const CSS_RESOURCE_ATTRIBUTES = new Set(["style", "fill", "stroke", "filter", "clip-path", "mask", "cursor", "marker", "marker-start", "marker-mid", "marker-end"]);
 
 type Element = {
 	localName: string;
@@ -26,8 +25,24 @@ type Element = {
 };
 
 function resourceUrls(name: string, value: string): string[] {
-	if (name === "srcset") return value.split(",").map((candidate) => candidate.trim().split(/\s+/)[0] ?? "").filter(Boolean);
+	// Data URLs contain commas. Read the URL before skipping descriptors.
+	if (name === "srcset") return Array.from(value.matchAll(/\s*(data:[^\s]+|[^,\s]+)(?:\s+[^,]*)?(?:,|$)/gi), match => match[1]!.replace(/,+$/, ""));
 	return [value];
+}
+
+function embeddedUrl(value: string): boolean {
+	return /^(?:data:|#)/i.test(value.trim());
+}
+
+function cssLoadsResource(css: string): boolean {
+	const decoded = css.replace(/\\([\da-f]{1,6})\s?|\\([^\r\n])/gi,
+		(_match, hex: string | undefined, character: string | undefined) => {
+			const point = hex ? parseInt(hex, 16) : 0;
+			return hex ? String.fromCodePoint(point > 0 && point <= 0x10ffff ? point : 0xfffd) : character!;
+		});
+	if (/@import\b/i.test(decoded)) return true;
+	return Array.from(decoded.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi))
+		.some(match => !embeddedUrl(match[1] ?? match[2] ?? match[3] ?? ""));
 }
 
 export function noteBodyProblems(
@@ -56,7 +71,7 @@ export function noteBodyProblems(
 		if (!options.interactive && (tag === "script" || tag === "style")) {
 			problems.add(`<${tag}> is only allowed in an interactive note. Use inline style attributes for layout.`);
 		}
-		if (tag === "style" && CSS_EXTERNAL.test(element.textContent ?? "")) {
+		if (tag === "style" && cssLoadsResource(element.textContent ?? "")) {
 			problems.add("A <style> element loads something from outside the page (url(…) or @import). Everything must be self-contained.");
 		}
 		for (const { name, value } of Array.from(element.attributes)) {
@@ -67,12 +82,12 @@ export function noteBodyProblems(
 			if (!options.interactive && /^\s*javascript:/i.test(value)) {
 				problems.add("javascript: URLs are only allowed in an interactive note.");
 			}
-			if (attribute === "style" && CSS_EXTERNAL.test(value)) {
-				problems.add(`A style attribute loads something from outside the page: "${value.slice(0, 120)}". Everything must be self-contained.`);
+			if (CSS_RESOURCE_ATTRIBUTES.has(attribute) && cssLoadsResource(value)) {
+				problems.add(`A ${attribute} attribute loads something from outside the page: "${value.slice(0, 120)}". Everything must be self-contained.`);
 			}
 			if (RESOURCE_ATTRIBUTES.has(attribute) && !(tag === "a" && (attribute === "href" || attribute === "xlink:href"))) {
 				for (const url of resourceUrls(attribute, value)) {
-					if (EXTERNAL.test(url)) {
+					if (!embeddedUrl(url) && !(options.interactive && /^\s*javascript:/i.test(url))) {
 						problems.add(`External resource "${url.slice(0, 200)}" in <${tag} ${attribute}>: everything must be self-contained (inline SVG or data: URIs). Only <a href> may link to the web.`);
 					}
 				}

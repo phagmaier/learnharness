@@ -325,8 +325,12 @@ export function NotesPage({
 		if (!deleting) return;
 		const target = deleting;
 		setDeleting(null);
+		setActionError(null);
 		const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes/${encodeURIComponent(target.id)}`, { method: "DELETE" }).catch(() => null);
-		if (response && !response.ok && response.status !== 404) setActionError(await errorOf(response));
+		if (!response || (!response.ok && response.status !== 404)) {
+			setActionError(response ? await errorOf(response) : "Couldn't reach the app. Try again.");
+			return;
+		}
 		setNotes((current) => current.filter((note) => note.id !== target.id));
 		void refresh();
 	};

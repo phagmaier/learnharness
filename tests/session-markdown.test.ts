@@ -128,6 +128,24 @@ describe("messageMarkdown", () => {
 		assert.match(free, /The learner answered: because/);
 	});
 
+	it("retains structured option labels and both modern thinking channels in notes and Markdown", async () => {
+		const { noteSource } = await import("../src/core/document/note-source.ts");
+		const messages = [result("r1", "q1", "ask_user_question", {
+			questionText: "What should we study?", answers: [{ index: 1, label: "Vectors", value: "vec" }],
+			thinking: "Start with direction.", readingThinking: "The diagram helped.", note: "obsolete thinking",
+		})];
+		const markdown = sessionMarkdown(messages);
+		assert.match(markdown, /The learner chose: Vectors/);
+		assert.ok(markdown.includes("Start with direction."));
+		assert.ok(markdown.includes("The diagram helped."));
+		assert.ok(!markdown.includes("[object Object]"));
+		assert.ok(!markdown.includes("obsolete thinking"));
+		assert.equal(noteSource({ messages } as never).text, sessionMarkdown(messages, { anchors: false }));
+		const quiz = messageMarkdown(result("r2", "q2", "quiz", { questionText: "Why?", correct: true, thinking: "A reason.", readingThinking: "A connection." }), "r2")!;
+		assert.ok(quiz.includes("A reason."));
+		assert.ok(quiz.includes("A connection."));
+	});
+
 	it("other clean tool results: one line; failed calls and markers: nothing", () => {
 		assert.equal(messageMarkdown(result("r1", "j1", "research", { brief: "long" }), "r1"), "### Tool · r1\n\n*research result delivered*");
 		assert.equal(messageMarkdown(result("r2", "j2", "research", {}, true), "r2"), null, "a failed call is retry context");

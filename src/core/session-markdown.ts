@@ -96,12 +96,19 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 				correct: boolean;
 				dontKnow: boolean;
 				note: string;
+				thinking: string;
+				readingThinking: string;
 				text: string;
-				answers: string[];
+				answers: Array<string | { label: string }>;
 				other: string;
 				dismissed: boolean;
 		  }>
 		| undefined;
+	const thinking = out?.thinking ?? out?.note;
+	const appendThinking = (body: string[]) => {
+		if (typeof thinking === "string" && thinking) body.push(`*(his thinking: ${thinking})*`);
+		if (typeof out?.readingThinking === "string" && out.readingThinking) body.push(`*(his thinking while reading: ${out.readingThinking})*`);
+	};
 
 	if (
 		result.toolName === "quiz" ||
@@ -124,7 +131,7 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		else if (out?.correct === true) body.push("The learner answered correctly.");
 		else if (out?.correct === false) body.push("The learner answered incorrectly.");
 		else if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered in his own words: ${out.text.trim()}`);
-		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
+		appendThinking(body);
 		return { heading, body };
 	}
 
@@ -159,13 +166,13 @@ function toolResultBody(result: ToolResultMessage, ctx?: MarkdownContext): { hea
 		const question = typeof out?.questionText === "string" && out.questionText ? out.questionText : "(no question text)";
 		const body = [`**Q:** ${question}`];
 		const chosen = [
-			...(Array.isArray(out?.answers) ? out!.answers! : []),
+			...(Array.isArray(out?.answers) ? out.answers.flatMap(answer => typeof answer === "string" ? [answer] : typeof answer?.label === "string" ? [answer.label] : []) : []),
 			...(typeof out?.other === "string" && out.other.trim() ? [out.other.trim()] : []),
 		];
 		if (typeof out?.text === "string" && out.text.trim()) body.push(`The learner answered: ${out.text.trim()}`);
 		else if (chosen.length > 0) body.push(`The learner chose: ${chosen.join(", ")}`);
 		else if (out?.dismissed === true) body.push("The learner skipped this question.");
-		if (typeof out?.note === "string" && out.note) body.push(`*(his thinking: ${out.note})*`);
+		appendThinking(body);
 		return { heading: "Question", body };
 	}
 

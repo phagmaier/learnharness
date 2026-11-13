@@ -24,6 +24,7 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 import type { QuestionAnswerData } from "../src/core/question-core.ts";
 import { renderDocumentFile } from "../src/agent/document/render.ts";
 import { headlessOverride } from "../src/agent/subagents/headless.ts";
+import { readPluginQuestionAnswer, readPluginQuestionMessageAnnotation, type PluginQuestionSnapshot } from "../src/core/plugin-questions.ts";
 
 // ─── fixture ────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,65 @@ function result(callId: string, toolName: string, details: unknown, isError = fa
 	return { id: `r_${callId}`, role: "toolResult", toolCallId: callId, toolName, content: [{ type: "text", text }], details, isError, timestamp: 1 } as never;
 }
 const call = (id: string, name: string, args: unknown) => ({ type: "toolCall", id, name, arguments: args });
+
+function pluginQuestionFixture() {
+	const snapshot: PluginQuestionSnapshot = {
+		protocolVersion: 1, pluginId: "fixture", typeId: "code", label: "Code", variant: "teach", questionId: "q1", contractVersion: 1,
+		occurrence: { messageId: "plugin", contentIndex: 0, toolCallId: "plugin-call", toolName: "code" },
+		input: { question: "Write the function.", payload: { solution: "PRIVATE_PLUGIN_KEY" }, type: "check", nodeId: "node" },
+		questionSchema: { type: "object" }, answerSchema: { type: "string" }, showThinking: true, requiresAnswerRefinement: false,
+	};
+	const pose = { ...assistant("plugin", [call("plugin-call", "code", snapshot.input)]), lhQuestions: { "0": snapshot } } as LhMessage;
+	assert.equal(readPluginQuestionMessageAnnotation(pose, 0).status, "posed");
+	const image = (text: string) => ({ type: "image" as const, mimeType: "image/png", data: Buffer.from(text).toString("base64") });
+	const answer = readPluginQuestionAnswer({
+		kind: "plugin-question", questionId: "q1", pluginId: "fixture", typeId: "code", contractVersion: 1,
+		answer: "return 42;", thinking: "  Answer thinking\nkept  ", readingThinking: "  Reading thinking\nkept  ",
+		images: { answer: [image("answer")], thinking: [image("thinking")], readingThinking: [image("reading")] }, answeredAt: "2026-11-13T00:00:00Z",
+	}, snapshot);
+	assert.ok(answer, "fixture is a valid recorded plugin answer");
+	return { pose, answer, snapshot };
+}
+
+it("exports plugin reading thoughts and every recorded image channel verbatim", () => {
+	const { pose, answer, snapshot } = pluginQuestionFixture();
+	const answered = { ...result("plugin-call", "code", answer), lhQuestionOccurrence: snapshot.occurrence } as LhMessage;
+	const body = conversationDocument({ title: "Plugin", createdAt: "2026-11-13", messages: [pose, answered] } as ChatRecord).body;
+	const document = parseHTML(`<html><body>${body}</body></html>`).document;
+	const text = document.body.textContent!;
+	assert.ok(text.includes(answer.thinking!), body);
+	assert.ok(text.includes(answer.readingThinking!));
+	assert.ok(text.includes("return 42;"));
+	assert.deepEqual(Array.from(document.querySelectorAll("img")).map(img => img.getAttribute("src")).sort(),
+		Object.values(answer.images!).flat().map(img => `data:${img.mimeType};base64,${img.data}`).sort());
+	assert.ok(!body.includes("PRIVATE_PLUGIN_KEY"));
+	const { thinking: _thinking, readingThinking: _reading, ...imagesOnly } = answer;
+	const imagesBody = conversationDocument({ title: "Plugin", createdAt: "2026-11-13", messages: [pose, { ...answered, details: imagesOnly } as LhMessage] } as ChatRecord).body;
+	assert.equal(parseHTML(imagesBody).document.querySelectorAll("img").length, 3);
+});
+
+it("exports pending built-in and plugin prompts/options without any answer keys or result", () => {
+	const { pose } = pluginQuestionFixture();
+	const messages = [
+		assistant("pending", [
+			call("quiz", "quiz", { question: "Choose a direction.", details: "Visible context.", options: [{ label: "North", value: "north" }, { label: "South", value: "south" }], correctAnswer: "north", explanation: "PRIVATE_QUIZ_KEY", type: "check" }),
+			call("ask", "ask_user_question", { question: "Which topic?", options: [{ label: "Vectors", value: "vec", description: "Visible description." }, { label: "Matrices", value: "mat" }] }),
+			call("explain", "explain", { question: "Explain direction.", correctAnswer: "PRIVATE_EXPLAIN_KEY" }),
+			call("probe", "probe", { question: "Probe direction.", options: [{ label: "North", value: "north" }, { label: "South", value: "south" }], correctAnswer: "north", explanation: "PRIVATE_PROBE_KEY" }),
+			call("recall", "recall", { question: "Recall direction.", correctAnswer: "PRIVATE_RECALL_KEY" }),
+		]), pose,
+	];
+	const body = conversationDocument({ title: "Pending", createdAt: "2026-11-13", messages } as ChatRecord).body;
+	const document = parseHTML(`<html><body>${body}</body></html>`).document;
+	assert.equal(document.querySelectorAll(".lh-question").length, 6);
+	assert.equal(document.querySelectorAll(".lh-question-meta").length, 6);
+	assert.ok(Array.from(document.querySelectorAll(".lh-question-meta")).every(el => el.textContent === "Not answered"));
+	for (const text of ["Choose a direction.", "North", "South", "Visible context.", "Which topic?", "Vectors", "Visible description.", "Explain direction.", "Probe direction.", "Recall direction.", "Write the function."]) assert.ok(document.body.textContent!.includes(text), text);
+	assert.ok(!body.includes("PRIVATE_"));
+	assert.equal(document.querySelector(".lh-result, .lh-option-correct, .lh-option-chosen, .lh-why, .lh-answer-key"), null);
+	const failed = conversationDocument({ title: "Failed", createdAt: "2026-11-13", messages: [messages[0]!, result("quiz", "quiz", {}, true)] } as ChatRecord).body;
+	assert.ok(!failed.includes("Choose a direction."), "a rejected tool call isn't a posed question");
+});
 
 const PLAN: PlanBlockData = {
 	kind: "full",
@@ -145,6 +205,50 @@ const RECORD: ChatRecord = {
 	imageSnapshots: { snap1: LEARNER_PNG },
 	sideChats: [THREAD],
 };
+
+for (const fixture of [
+	{ name: "right check", tool: "quiz", type: "check", badge: "Right", label: "Check question", patch: { correct: true, answers: [{ index: 1, value: "e1", label: "\\((1, 0)\\)" }] } },
+	{ name: "don't know", tool: "quiz", type: "check", badge: "Don't know", label: "Check question", patch: { dontKnow: true, answers: [], confidence: undefined } },
+	{ name: "skipped", tool: "quiz", type: "check", badge: "Skipped", label: "Check question", patch: { dismissed: true, answers: [] } },
+	{ name: "prediction", tool: "quiz", type: "predict", badge: "Wrong", label: "Prediction question", patch: {} },
+	{ name: "probe", tool: "probe", type: "check", badge: "Wrong", label: "Probe question", patch: {} },
+] as const) {
+	it(`exports the ${fixture.name} outcome with the recorded question and reveal state`, () => {
+		const input = { ...QUIZ_INPUT, type: fixture.type };
+		const answer = { ...QUIZ_ANSWER, tool: fixture.tool, questionType: fixture.type, ...fixture.patch };
+		const root = blocks(conversationDocument({ ...RECORD, messages: [assistant("question", [call("q", fixture.tool, input)]), result("q", fixture.tool, answer)] }).body);
+		assert.equal(root.querySelector(".lh-label")?.textContent, fixture.label);
+		assert.equal(root.querySelector(".lh-result")?.textContent, fixture.badge);
+		assert.match(root.querySelector(".lh-question-prompt")?.textContent ?? "", /Which vector is an eigenvector/);
+		if (fixture.name === "skipped") {
+			assert.equal(root.querySelector(".lh-options, .lh-why, .lh-question-meta"), null);
+		} else {
+			assert.equal(root.querySelectorAll(".lh-option").length, 2);
+			assert.ok(root.querySelector(".lh-why")?.textContent?.includes("maps onto a multiple"));
+			assert.equal(root.querySelector(".lh-why")?.hasAttribute("open"), false);
+			assert.equal(root.querySelectorAll(".lh-option-chosen").length, fixture.name === "don't know" ? 0 : 1);
+			assert.equal(root.querySelectorAll(".lh-option-wrong").length, fixture.name === "right check" || fixture.name === "don't know" ? 0 : 1);
+			if (fixture.name === "don't know") assert.ok(!root.textContent?.includes("Confidence:"));
+		}
+	});
+}
+
+for (const tool of ["explain", "recall"] as const) {
+	it(`exports answered ${tool} questions with the learner's words, both thinking channels and committed answer`, () => {
+		const input = { question: "Why does a vector keep its direction?", correctAnswer: "It is rescaled by a scalar." };
+		const answer: QuestionAnswerData = {
+			kind: "explain", tool, questionText: input.question, dontKnow: false, answers: [], text: "  It stays on the line.\nOnly its length changes.  ",
+			thinking: "  I compared directions.  ", readingThinking: "  The arrows helped.  ", committed: input.correctAnswer, answeredAt: "2026-11-13T00:00:00Z",
+		};
+		const root = blocks(conversationDocument({ ...RECORD, messages: [assistant("question", [call("q", tool, input)]), result("q", tool, answer)] }).body);
+		assert.equal(root.querySelector(".lh-label")?.textContent, tool === "recall" ? "Recall question" : "Explain question");
+		assert.ok(root.textContent?.includes(answer.text!));
+		assert.ok(root.textContent?.includes("  I compared directions.  "));
+		assert.ok(root.textContent?.includes("  The arrows helped.  "));
+		assert.equal(root.querySelector(".lh-answer-key")?.textContent, "The answerIt is rescaled by a scalar.");
+		assert.equal(root.querySelector(".lh-result, .lh-options, .lh-why"), null);
+	});
+}
 
 function blocks(html: string) {
 	const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);

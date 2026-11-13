@@ -7,9 +7,9 @@ import { buildDemoSrcDoc, DEMO_MAX_HEIGHT, DEMO_MIN_HEIGHT } from "../demo-bridg
 import { repairMathForDisplay } from "../math-delims.ts";
 import type { LhMessage } from "../native-messages.ts";
 import { readPluginQuestionAnswer, readPluginQuestionCancellation } from "../plugin-questions.ts";
-import type { QuestionAnswerData } from "../question-core.ts";
+import { normalizeOptions, seededRandom, shuffleOptions, type QuestionAnswerData } from "../question-core.ts";
 import { sideEntryPoints } from "../side-chat.ts";
-import { parseAskInput, parseQuizInput } from "../tool-parts.ts";
+import { parseAskInput, parseQuestionInput, parseQuizInput } from "../tool-parts.ts";
 import { projectView, type LhViewPart } from "../view.ts";
 import { figureImageSrc, learnerImageSrc } from "./figures.ts";
 import { escapeHtml } from "./html.ts";
@@ -19,7 +19,7 @@ import { planMapSvg } from "./plan-map.ts";
 /**
  * A teaching session as one document body (plan 03 item 2), built from the
  * same projection the chat renders (projectView) so blocks appear in
- * transcript order: learner messages, teacher prose, answered questions,
+ * transcript order: learner messages, teacher prose, questions,
  * plan maps, figures and images, research and PDF briefs, interactive
  * demos, and side-question threads after the passage they were asked about.
  * Model thinking, usage, tool traffic, failed tool calls and markers are
@@ -80,12 +80,29 @@ function learnerBlock(text: string, attached?: ReadonlyArray<Pick<ImageContent, 
 	return `<div class="lh-learner"><span class="lh-label">You</span><div class="lh-learner-text">${learnerText(text)}</div>${images(attached)}</div>`;
 }
 
-function questionLabel(answer: QuestionAnswerData): string {
+function questionLabel(answer: Pick<QuestionAnswerData, "tool" | "kind" | "questionType">): string {
 	if (answer.tool === "probe") return "Probe question";
 	if (answer.tool === "recall") return "Recall question";
 	if (answer.kind === "quiz") return answer.questionType === "predict" ? "Prediction question" : "Check question";
 	if (answer.kind === "explain") return "Explain question";
 	return "Question";
+}
+
+/** Export only fields visible before submission; never serialize private keys. */
+function pendingQuestionBlock(tool: string, part: LhViewPart): string {
+	if (part.state !== "input-available") return "";
+	const input = parseQuestionInput(tool, part.input);
+	if (!input) return "";
+	const kind = tool === "ask_user_question" ? "ask" : tool === "explain" || tool === "recall" ? "explain" : "quiz";
+	const label = questionLabel({ tool, kind, questionType: "type" in input ? input.type : undefined });
+	const options = "options" in input ? normalizeOptions(input.options) : [];
+	const ordered = kind === "quiz" ? shuffleOptions(options, seededRandom(part.toolCallId ?? "")) : options;
+	const rows = ordered.map(option => `<li class="lh-option">${inlineMarkdown(repairMathForDisplay(option.label))}`
+		+ (option.description ? `<span class="lh-option-description">${inlineMarkdown(repairMathForDisplay(option.description))}</span>` : "") + "</li>").join("");
+	const details = "details" in input && input.details ? `<div class="lh-question-details">${markdownToHtml(repairMathForDisplay(input.details))}</div>` : "";
+	return `<div class="lh-question"><div class="lh-question-head"><span class="lh-label">${label}</span></div>`
+		+ `<div class="lh-question-prompt">${markdownToHtml(repairMathForDisplay(input.question))}</div>${details}`
+		+ (rows ? `<ol class="lh-options">${rows}</ol>` : "") + `<p class="lh-question-meta">Not answered</p></div>`;
 }
 
 function resultBadge(answer: QuestionAnswerData): string {
@@ -147,17 +164,22 @@ function questionBlock(saved: QuestionAnswerData, input: unknown): string {
 /** Plugin questions keep their recorded answer text, as the Markdown export does. */
 function pluginQuestionBlock(part: LhViewPart): string {
 	const annotation = part.pluginQuestion;
-	if (!annotation || annotation.status !== "posed" || part.state !== "output-available") return "";
+	if (!annotation || annotation.status !== "posed" || part.state === "output-error") return "";
 	const head = `<div class="lh-question-head"><span class="lh-label">Question</span></div>`;
 	const prompt = `<div class="lh-question-prompt">${markdownToHtml(repairMathForDisplay(annotation.snapshot.input.question))}</div>`;
+	if (part.state === "input-available") return `<div class="lh-question">${head}${prompt}<p class="lh-question-meta">Not answered</p></div>`;
+	if (part.state !== "output-available") return "";
 	if (readPluginQuestionCancellation(part.output)) {
 		return `<div class="lh-question">${head}${prompt}<p class="lh-question-meta">The question was cancelled without a learner answer.</p></div>`;
 	}
 	const answer = readPluginQuestionAnswer(part.output);
 	if (!answer) return "";
 	const text = typeof answer.answer === "string" ? answer.answer : JSON.stringify(answer.answer);
-	const thinking = answer.thinking !== undefined ? `<p class="lh-question-meta">Your thinking: ${verbatim(answer.thinking)}</p>` : "";
-	return `<div class="lh-question">${head}${prompt}<p class="lh-question-answer">Your answer: “${verbatim(text)}”</p>${thinking}</div>`;
+	const thinking = answer.thinking !== undefined || answer.images?.thinking?.length
+		? `<p class="lh-question-meta">Your thinking: ${verbatim(answer.thinking ?? "")}</p>${images(answer.images?.thinking)}` : "";
+	const reading = answer.readingThinking !== undefined || answer.images?.readingThinking?.length
+		? `<p class="lh-question-meta">Your thinking while reading: ${verbatim(answer.readingThinking ?? "")}</p>${images(answer.images?.readingThinking)}` : "";
+	return `<div class="lh-question">${head}${prompt}<p class="lh-question-answer">Your answer: “${verbatim(text)}”</p>${images(answer.images?.answer)}${reading}${thinking}</div>`;
 }
 
 function snapshotOf(record: ChatRecord, id: string | undefined): ImageSnapshot | undefined {
@@ -295,6 +317,10 @@ export function conversationDocument(record: ChatRecord): ConversationDocument {
 			const tool = part.type.startsWith("tool-") ? part.type.slice(5) : "";
 			if (QUESTION_TOOLS.has(tool) && part.state === "output-available" && part.output) {
 				blocks.push(questionBlock(part.output as QuestionAnswerData, part.input));
+				return;
+			}
+			if (QUESTION_TOOLS.has(tool)) {
+				blocks.push(pendingQuestionBlock(tool, part));
 				return;
 			}
 			if (tool === "show_image" && part.state === "output-available") {

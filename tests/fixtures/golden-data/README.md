@@ -31,11 +31,14 @@ core tool surface must appear in real data here.
   learner, demo done, visual done, pdf error.
 - `settings.json` — the stamped settings record (version 1, model slots).
 - `notes/chat_mv27rrra_feff23b6/notes.json` — the fork's notes index (plan
-  03, version 1) for the teach master: a ready note whose rewrite failed
+  03, version 2) for the teach master: a ready note whose rewrite failed
   (old version kept, error recorded) and a stopped interactive note. Written
   by the real notes service and store against a scratch copy of this
   directory, with a scripted (faux) model in place of a provider; the note
-  HTML files are omitted to keep the fixture small.
+  HTML files are omitted to keep the fixture small. The index was upgraded
+  through the real store's publication path after the review repair; its
+  `htmlRevision` selects that immutable publication. Legacy v1 HTML reads
+  and publication upgrades are covered in `tests/notes.test.ts`.
 
 ## Regenerating / extending
 

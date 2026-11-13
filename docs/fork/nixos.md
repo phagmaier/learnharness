@@ -20,7 +20,7 @@ Verified on 2026-11-12: `npm ci`, `plugins:setup`, `typecheck`, `lint` (1 existi
 
 ## Browser development
 
-`npm run dev` serves on http://localhost:3000 and needs nothing beyond mise.
+`mise exec -- npm run dev` serves on http://localhost:3000 and needs nothing beyond mise for the browser UI. To render Mermaid or verify demos with the app's Electron helper, use `nix develop -c mise exec -- npm run dev` so the helper inherits its native libraries. Development Electron discovery works without `CHROME_PATH`; system Chrome remains a fallback.
 
 ## Electron development
 
@@ -74,4 +74,4 @@ To try a build without installing it, run the unpacked app against a scratch pro
 
 ## Not set up
 
-- **Chrome/Chromium.** Demo verification falls back to `CHROME_PATH` when Electron's browser helper is unavailable. None is installed; the test suite passes without it.
+- **Chrome/Chromium.** None is installed. The app's Electron helper renders Mermaid and verifies demos when the dev server runs inside `nix develop`; system Chrome remains the fallback when available.

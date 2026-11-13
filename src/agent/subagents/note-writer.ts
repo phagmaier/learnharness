@@ -127,7 +127,7 @@ export async function writeNote(input: WriteNoteInput): Promise<WrittenNote> {
 		submissions++;
 		const problems: string[] = [];
 		if (!value.title) problems.push("The title is empty. Give the note a short, specific title.");
-		else if (value.title.length > 120) problems.push("The title is too long. Use at most eight words.");
+		else if (value.title.split(/\s+/).length > 8) problems.push("The title is too long. Use at most eight words.");
 		problems.push(...noteBodyProblems(value.body, { interactive: input.interactive, figureIds }));
 		if (problems.length > 0) return `Fix these problems and call submit_note again:\n${problems.map((p) => `- ${p}`).join("\n")}`;
 

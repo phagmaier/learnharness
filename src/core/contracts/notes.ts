@@ -3,11 +3,11 @@ import type { JobUsage } from "./jobs.ts";
 /**
  * Study notes (fork plan 03): on-demand HTML notes written from a session.
  * Each owner (a standalone session today; a course unit in phase 1) keeps
- * one index file plus one final, self-contained HTML file per note.
+ * one index file selecting a final, self-contained HTML revision per note.
  */
 
 /** The notes index format this build writes and understands. */
-export const CURRENT_NOTES_VERSION = 1;
+export const CURRENT_NOTES_VERSION = 2;
 
 export type NoteStatus = "writing" | "ready" | "failed";
 
@@ -31,6 +31,8 @@ export interface NoteEntry {
 	status: NoteStatus;
 	createdAt: string;
 	updatedAt: string;
+	/** Immutable HTML revision selected by this publication; absent in v1. */
+	htmlRevision?: string;
 	/** The latest generation's provider-qualified model and usage. */
 	model?: string;
 	usage?: JobUsage;

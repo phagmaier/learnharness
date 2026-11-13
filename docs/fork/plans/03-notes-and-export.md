@@ -411,6 +411,44 @@ The user message holds the session title, the session text in a `<session>` bloc
 - **`src/agent/prompts/README.md`:** where the note writer's prompt lives (`subagents/note-writer.ts`). It is not a Settings → Prompts segment.
 - **Checks:** with the dev server stopped, typecheck passed, lint passed with the inherited warning, and tests gave 5402 pass, 0 fail, 4 skipped.
 
+## Review repairs — approved by the human 2026-11-13
+
+The human approved the repair plan for findings 1–8. These decisions supersede the conflicting agent-selected choices recorded above; approval is recorded in the [fork README](../README.md#notes-and-conversation-export-course-phase-0).
+
+- Publish a new immutable HTML revision before atomically switching the version-2 notes index's optional `htmlRevision` pointer. Read version-1 files until they are rewritten. The index never uses the in-place write fallback. A storage failure before the index commit preserves the previous file and metadata. Agent-selected: UUID revision names; remove superseded or unpublished revisions on a best-effort basis, and delete any leftovers with the note.
+- Include unanswered built-in and plugin questions in export, labeled "Not answered". Show their public prompts and visible context/options; never include private plugin payloads, keys, explanations, or correctness before submission. Agent-selected: use the chat's deterministic quiz shuffle for pending options.
+- Keep plugin answer reading thoughts and all attached image channels in HTML, and structured learner option labels and both modern thinking channels in Markdown and note input.
+- Reject relative and other non-embedded HTML/CSS resources, while allowing data URIs and local SVG references. Validation returns the problem to the writer.
+- Preserve full learner instructions. After a failed DELETE, retain the note and show the server error or the existing connection-error wording. A 404 confirms that the note is already absent.
+- Ratify all note-page wording listed in item 4 above and the persisted `stopped: true` field. Replace the unapproved 120-character title limit with the prompt's eight-word rule.
+
+**Verification:**
+
+- Full suite: 5,419 passed, 0 failed, 4 skipped. The 88 focused notes, export, Markdown, and UI cases passed; the notes file passed again (41 cases) after the final SVG-resource check.
+- Typecheck passed. Lint passed with the documented inherited warning in `tests/source-name-ui.test.tsx`. A repeat initially raced plugin staging's temporary files; rerunning after staging passed.
+- The regression cases were also run against an isolated archive of the original code: 11 failed, including index-write/rename publication failures, lost plugin content, pending questions, deletion failures, answer formatting, instruction truncation, and title validation. The original HTML-rename failure case already passed.
+- Real browser, synthetic scratch profile: disconnected and HTTP-500 deletion kept the note and its frame with an error visible; successful deletion removed both. A downloaded export opened from disk with the pending quiz's prompt and options, "Not answered", and no answer key or explanation.
+- Final implementation review and `git diff --check` passed. No paid providers, real sign-ins, or human learning data were used. Real-provider generation and desktop behavior were not exercised by these repairs.
+
+## Follow-up coverage and development repairs — approved 2026-11-13
+
+The human approved the remaining scope after the first repair pass. The preceding product/storage decisions and Markdown formatter correction remain approved; no further dependencies or product/storage changes are introduced.
+
+- Extended export checks for right, don't-know and skipped results, prediction/probe questions, and answered recall/explain questions. The first repair pass already added plugin answers/images/thoughts and pending questions.
+- Added stopped-regeneration and simultaneous-generation checks, plus a note-source fixture asserting side-thread placement, shown-image identity, plan titles, selected labels and both modern thinking channels.
+- Added real child-process interruption at both sides of the index rename: staging without commit preserves the old version and recovers the rewrite as interrupted; a committed index selects the complete replacement even when cleanup never ran.
+- Fixed the development issues in the requested order: helper profile isolation, sealed-ref SSR, then development Electron resolution. Agent-selected: the parent owns the temporary profile through `LH_BROWSER_SERVICE_PROFILE` and cleans after child exit; Chromium may flush after Electron's quit event. Both `userData` and `sessionData` are set before readiness. Bridges are complete ordinary objects held inside React refs. Development resolution anchors package lookup and the app argument to the real project working directory; packaged servers self-execute and Chrome remains the fallback.
+- Repeatable live checks: `scripts/smoke-browser-service.mjs` exercises real helper/profile/disconnect behavior, and `scripts/smoke-dev-runtime.mjs` starts the standard dev script against synthetic data and temporarily adds/removes a probe route for the real bundled helper. It checks SSR, Mermaid and a demo control's independently expected result (42), without `CHROME_PATH`.
+
+**Verification:**
+
+- Full suite: 5,435 passed, 0 failed, 4 skipped. Typecheck passed. Lint passed with the inherited warning in `tests/source-name-ui.test.tsx`.
+- The new SSR regression reproduced `Cannot add property changed, object is not extensible` before the fix; it now passes, together with all four production Chat/plugin draft-notification cases. The missing export/lifecycle/source cases passed (69 focused cases).
+- Real Electron profile smoke passed for regular and dev launches: both profile paths were temporary before readiness, synthetic page execution worked, regular/dev/upstream scratch profile locations stayed absent, and parent-disconnect shutdown/cleanup passed. Helper lifetime/retirement unit cases passed; resolver tests also passed under Electron's own Node runtime.
+- `smoke-dev-runtime.mjs --hold` passed inside `nix develop`: Chat/Dock SSR answered 200, real Mermaid produced SVG, and a demo button produced 42 without `CHROME_PATH`. A real browser rendered the lesson and pending dock and retained typed answer text. The temporary route and scratch server were removed afterward.
+- `npm run build`, the provider-runtime smoke, `build-server.mjs`, and `smoke-server.mjs --electron --isolated` passed. The server served its APIs, document assets and plugin proofs from a copy outside the source checkout. Provider initialization reported zero network attempts. The build retained the inherited `pdf-read.ts` dynamic-filesystem tracing warning.
+- Final diff review and whitespace checks passed. No real learning data, paid providers, real sign-ins, package installs, releases or AppImage packaging were used. The human subsequently authorized committing these repairs, merging the feature into `main`, and deleting fully merged branches.
+
 ## Not in this plan
 
 - Phase 1 pieces: unit notes, the course Notes tab, the "Complete unit" dialog's note and export offers.

@@ -10,6 +10,7 @@ import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { spawnSync } from "node:child_process";
 import { after, afterEach, before, describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import {
@@ -159,6 +160,24 @@ describe("note store", () => {
 		assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "notes.json"), "utf8")).version, CURRENT_NOTES_VERSION + 1, "a newer index is never rewritten");
 	});
 
+	it("reads legacy HTML and upgrades the index only when publishing a complete revision", () => {
+		const dir = path.join(TMP, "store-legacy");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, "notes.json"), JSON.stringify({ version: 1, notes: [entry("legacy")] }));
+		fs.writeFileSync(path.join(dir, "legacy.html"), "<p>Legacy.</p>");
+		const store = noteStore.noteStoreAt(dir);
+		assert.equal(store.readHtml("legacy"), "<p>Legacy.</p>");
+		assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "notes.json"), "utf8")).version, 1);
+		store.publish("legacy", "<p>New.</p>", note => ({ ...note, title: "New" }));
+		assert.equal(store.readHtml("legacy"), "<p>New.</p>");
+		const saved = JSON.parse(fs.readFileSync(path.join(dir, "notes.json"), "utf8"));
+		assert.equal(saved.version, 2);
+		assert.ok(saved.notes[0].htmlRevision);
+		assert.equal(fs.existsSync(path.join(dir, "legacy.html")), false);
+		assert.equal(store.remove("legacy"), true);
+		assert.deepEqual(fs.readdirSync(dir), ["notes.json"]);
+	});
+
 	it("refuses unsafe chat and note ids", () => {
 		assert.throws(() => noteStore.sessionNoteStore("../chats"), /Invalid chat id/);
 		const store = noteStore.noteStoreAt(path.join(TMP, "store-ids"));
@@ -182,11 +201,52 @@ describe("note store", () => {
 		assert.equal(rewrite.regenerating?.error, "Interrupted when the app closed");
 		assert.equal(store.readHtml("r1"), "<p>old version</p>");
 	});
+
+	for (const boundary of ["before-index", "after-index"] as const) {
+		it(`reads a consistent publication after process interruption ${boundary}`, () => {
+			const chatId = makeChat("Publication interruption");
+			const store = noteStore.sessionNoteStore(chatId);
+			store.add(entry("crash"));
+			store.writeHtml("crash", "<p>Original.</p>");
+			store.update("crash", note => ({ ...note, regenerating: { instruction: "new instruction", interactive: true, startedAt: "2026-11-13T01:00:00Z" } }));
+			const child = spawnSync(process.execPath, ["--import", "tsx", path.resolve("tests/fixtures/note-publication-crash.ts"), chatId, "crash", boundary], {
+				env: { ...process.env, LH_DATA_DIR: TMP }, encoding: "utf8", timeout: 15_000,
+			});
+			assert.equal(child.status, 86, child.stderr);
+			const recovered = notes.getNote(chatId, "crash")!;
+			if (boundary === "before-index") {
+				assert.equal(recovered.title, "crash");
+				assert.equal(recovered.instruction, "");
+				assert.equal(recovered.interactive, false);
+				assert.equal(recovered.regenerating?.error, notes.INTERRUPTED_MESSAGE);
+				assert.equal(store.readHtml("crash"), "<p>Original.</p>");
+			} else {
+				assert.equal(recovered.title, "Replacement");
+				assert.equal(recovered.instruction, "new instruction");
+				assert.equal(recovered.interactive, true);
+				assert.equal(recovered.regenerating, undefined);
+				assert.equal(store.readHtml("crash"), "<p>Replacement.</p>");
+			}
+		});
+	}
 });
 
 // ─── the writer and its lifecycle ───────────────────────────────────────────
 
 describe("note writer", () => {
+	it("accepts embedded images, data srcsets and local SVG references while rejecting non-embedded resources", async () => {
+		const { noteBodyProblems } = await import("../src/core/document/note-body.ts");
+		const options = { interactive: true, figureIds: new Set<string>() };
+		assert.deepEqual(noteBodyProblems('<p style="background:url(data:image/png;base64,AA==)">x</p><img srcset="data:image/png;base64,AA== 1x, data:image/png;base64,BB== 2x"><svg><defs><path id="shape"/></defs><use href="#shape" style="clip-path:url(#shape)"/></svg><a href="https://example.com">Web</a>', options), []);
+		for (const body of [
+			'<img src="relative.png">', '<img src="">', '<img src="blob:missing">',
+			'<img srcset="data:image/png;base64,AA== 1x, /missing.png 2x">',
+			'<svg><use xlink:href="local.svg#shape"/></svg>',
+			'<svg><rect fill="url(local.svg#paint)"/></svg>',
+			'<style>p{background:url("../image.png")}</style><p>x</p>',
+			'<p style="background:u\\72l(/missing.png)">x</p>',
+		]) assert.ok(noteBodyProblems(body, options).length > 0, body);
+	});
 	it("writes the stored file from one submit, with title, model and usage", async () => {
 		const chatId = makeChat();
 		const { engine, requests } = scripted([submit("Eigenvectors, briefly", `${ASSETS_FREE_NOTE}<figure data-figure="F1"><figcaption>Two vectors</figcaption></figure><pre class="mermaid">graph LR\n A-->B</pre>`)]);
@@ -218,6 +278,9 @@ describe("note writer", () => {
 	});
 
 	const RULES: Array<{ rule: string; body: string; problem: RegExp; interactive?: boolean }> = [
+		{ rule: "relative images", body: '<img src="/missing-image.png">', problem: /External resource/ },
+		{ rule: "relative CSS", body: '<p style="background:url(../missing.png)">x</p>', problem: /style attribute loads something from outside/ },
+		{ rule: "relative stylesheets", body: '<style>@import "local.css";</style><p>x</p>', problem: /style.*loads something from outside/i, interactive: true },
 		{ rule: "page elements", body: "<html><body><p>x</p></body></html>", problem: /<html> isn't allowed/ },
 		{ rule: "embedding elements", body: '<p>x</p><iframe src="data:,"></iframe>', problem: /<iframe> isn't allowed/ },
 		{ rule: "external images", body: '<p>x</p><img src="https://example.com/a.png">', problem: /External resource "https:\/\/example.com\/a.png"/ },
@@ -317,7 +380,7 @@ describe("note writer", () => {
 		const created = notes.createNote(chatId, {});
 		assert.ok(created.ok);
 		await settled(chatId, created.note.id);
-		const original = fs.readFileSync(path.join(TMP, "notes", chatId, `${created.note.id}.html`));
+		const original = notes.readNoteHtml(chatId, created.note.id);
 
 		// A rewrite that fails: the old file and title stay; the error shows.
 		const failing = scripted([fauxAssistantMessage([fauxText("I won't submit.")]), fauxAssistantMessage([fauxText("Still no.")]), fauxAssistantMessage([fauxText("No.")]), fauxAssistantMessage([fauxText("No.")])]);
@@ -330,7 +393,7 @@ describe("note writer", () => {
 		assert.equal(failed.title, "Version one");
 		assert.equal(failed.instruction, "");
 		assert.match(failed.regenerating?.error ?? "", /stopped without producing a note/);
-		assert.deepEqual(fs.readFileSync(path.join(TMP, "notes", chatId, `${created.note.id}.html`)), original);
+		assert.equal(notes.readNoteHtml(chatId, created.note.id), original);
 
 		// A rewrite that succeeds replaces both and clears the rewrite state.
 		const second = scripted([submit("Version two", "<p>Shorter.</p>")]);
@@ -341,6 +404,73 @@ describe("note writer", () => {
 		assert.equal(done.instruction, "shorter");
 		assert.equal(done.regenerating, undefined);
 		assert.ok(notes.readNoteHtml(chatId, done.id)!.includes("Shorter."));
+	});
+
+	for (const stage of ["html-rename", "index-write", "index-rename"] as const) {
+		it(`keeps the published HTML and metadata when ${stage} fails during regeneration`, async () => {
+			const chatId = makeChat();
+			useEngine(scripted([submit("Version one", "<p>Original.</p>")]).engine);
+			const created = notes.createNote(chatId, { instruction: "original" });
+			assert.ok(created.ok);
+			const original = await settled(chatId, created.note.id);
+			const html = notes.readNoteHtml(chatId, original.id);
+			const rename = fs.renameSync, write = fs.writeFileSync;
+			let injected = false;
+			try {
+				useEngine(scripted([submit("Version two", "<p>Replacement.</p>")]).engine);
+				assert.ok(notes.regenerateNote(chatId, original.id, { instruction: "replacement", interactive: true }).ok);
+				fs.renameSync = (from, to) => {
+					if (!injected && (stage === "html-rename" ? String(to).endsWith(".html") : stage === "index-rename" && String(to).endsWith("notes.json"))) {
+						injected = true;
+						throw Object.assign(new Error("ENOSPC: injected publication failure"), { code: "ENOSPC" });
+					}
+					return rename(from, to);
+				};
+				fs.writeFileSync = (...args: Parameters<typeof fs.writeFileSync>) => {
+					if (!injected && stage === "index-write" && String(args[1]).includes('"Version two"')) {
+						injected = true;
+						throw Object.assign(new Error("ENOSPC: injected publication failure"), { code: "ENOSPC" });
+					}
+					return write(...args);
+				};
+				const failed = await settled(chatId, original.id);
+				assert.equal(injected, true);
+				assert.match(failed.regenerating?.error ?? "", /ENOSPC/);
+				const { regenerating: _rewrite, ...published } = failed;
+				assert.deepEqual(published, original);
+				assert.equal(notes.readNoteHtml(chatId, original.id), html);
+				assert.equal(noteStore.sessionNoteStore(chatId).readHtml(original.id), html, "a fresh store reads the old publication too");
+			} finally {
+				fs.renameSync = rename;
+				fs.writeFileSync = write;
+			}
+		});
+	}
+
+	it("preserves instructions beyond 4,000 characters through creation and regeneration", async () => {
+		const chatId = makeChat();
+		const instruction = "Explain vectors. ".repeat(300) + "Keep this final requirement.";
+		const { engine, requests } = scripted([submit("First", "<p>First.</p>"), submit("Second", "<p>Second.</p>")]);
+		useEngine(engine);
+		const created = notes.createNote(chatId, { instruction });
+		assert.ok(created.ok);
+		assert.equal((await settled(chatId, created.note.id)).instruction, instruction);
+		const revised = instruction + " Include a diagram.";
+		assert.ok(notes.regenerateNote(chatId, created.note.id, { instruction: revised }).ok);
+		assert.equal((await settled(chatId, created.note.id)).instruction, revised);
+		assert.ok(JSON.stringify(requests[0]).includes(instruction));
+		assert.ok(JSON.stringify(requests[1]).includes(revised));
+	});
+
+	it("enforces eight words rather than an unapproved character limit for titles", async () => {
+		const chatId = makeChat();
+		const title = "A".repeat(121);
+		const { engine, requests } = scripted([submit("one two three four five six seven eight nine", "<p>x</p>"), submit(title, "<p>x</p>")]);
+		useEngine(engine);
+		const created = notes.createNote(chatId, {});
+		assert.ok(created.ok);
+		assert.equal((await settled(chatId, created.note.id)).title, title);
+		assert.match(toolResultTexts(requests[1]!).join("\n"), /at most eight words/);
 	});
 
 	it("refuses to rewrite a note while it is being written", async () => {
@@ -356,6 +486,43 @@ describe("note writer", () => {
 		assert.equal(!refused.ok && refused.status, 409);
 		release();
 		assert.equal((await settled(chatId, created.note.id)).status, "ready");
+	});
+
+	it("stops regeneration without changing the published HTML, instruction or metadata", async () => {
+		const chatId = makeChat();
+		useEngine(scripted([submit("Original", "<p>Keep this.</p>")]).engine);
+		const created = notes.createNote(chatId, { instruction: "original" });
+		assert.ok(created.ok);
+		const original = await settled(chatId, created.note.id);
+		const html = notes.readNoteHtml(chatId, original.id);
+		notes.noteServiceSeams.write = async ({ signal }) => new Promise((_resolve, reject) => {
+			signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+		});
+		assert.ok(notes.regenerateNote(chatId, original.id, { instruction: "replacement", interactive: true }).ok);
+		assert.equal(notes.stopNote(chatId, original.id), true);
+		assert.deepEqual(await settled(chatId, original.id), original);
+		assert.equal(notes.readNoteHtml(chatId, original.id), html);
+	});
+
+	it("publishes simultaneous notes independently when they finish in reverse order", async () => {
+		const chatId = makeChat();
+		useEngine(scripted([]).engine);
+		const finish = new Map<string, (value: Awaited<ReturnType<typeof notes.noteServiceSeams.write>>) => void>();
+		notes.noteServiceSeams.write = ({ instruction }) => new Promise(resolve => finish.set(instruction, resolve));
+		const first = notes.createNote(chatId, { instruction: "first" });
+		const second = notes.createNote(chatId, { instruction: "second", interactive: true });
+		assert.ok(first.ok && second.ok);
+		assert.equal(notes.noteWriterActivities().filter(row => row.chatId === chatId).length, 2);
+		finish.get("second")!({ title: "Second note", html: "<p>Second content.</p>" });
+		const publishedSecond = await settled(chatId, second.note.id);
+		assert.equal(publishedSecond.instruction, "second");
+		assert.equal(publishedSecond.interactive, true);
+		assert.equal(notes.getNote(chatId, first.note.id)?.status, "writing");
+		finish.get("first")!({ title: "First note", html: "<p>First content.</p>" });
+		assert.equal((await settled(chatId, first.note.id)).title, "First note");
+		assert.deepEqual(notes.getNote(chatId, second.note.id), publishedSecond);
+		assert.equal(notes.readNoteHtml(chatId, first.note.id), "<p>First content.</p>");
+		assert.equal(notes.readNoteHtml(chatId, second.note.id), "<p>Second content.</p>");
 	});
 
 	it("refuses a session too long for the model's context window, naming the model", async () => {

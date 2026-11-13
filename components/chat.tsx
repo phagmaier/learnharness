@@ -322,7 +322,7 @@ export function Chat({
 	const submissionMounted = useRef(true);
 	useEffect(() => { submissionMounted.current = true; return () => { submissionMounted.current = false; submissionRunner.dispose(); }; }, [submissionRunner]);
 	useEffect(() => () => submissionRunner.dispose(), [surfaceTarget, submissionRunner]);
-	const inputViewReader = useRef<(() => PluginSessionViewInput) | null>(null) as SessionInputViewReader;
+	const inputViewReader = useRef<SessionInputViewReader>({ current: null, changed: undefined }).current;
 	const refreshPluginActions = useRef<(() => void) | null>(null);
 	const notifyViewChanged = useCallback(() => { if (submissionMounted.current) refreshPluginActions.current?.(); }, []);
 	inputViewReader.changed = notifyViewChanged;
@@ -2504,9 +2504,9 @@ export function DockOverlay({
 	const readingInputRef = useRef<HTMLDivElement>(null);
 	const ownsDock = !!pending || !!pluginQuestion || unreadablePlugin || !!practice;
 	const initialPendingRef = useRef(pendingId);
-	const nativeViewReader = useRef<(() => NativeQuestionViewState) | null>(null) as ViewReaderRef<NativeQuestionViewState>;
-	const practiceViewReader = useRef<(() => string) | null>(null) as ViewReaderRef<string>;
-	const customViewReader = useRef<(() => { available: boolean }) | null>(null) as ViewReaderRef<{ available: boolean }>;
+	const nativeViewReader = useRef<ViewReaderRef<NativeQuestionViewState>>({ current: null, changed: undefined }).current;
+	const practiceViewReader = useRef<ViewReaderRef<string>>({ current: null, changed: undefined }).current;
+	const customViewReader = useRef<ViewReaderRef<{ available: boolean }>>({ current: null, changed: undefined }).current;
 	nativeViewReader.changed = practiceViewReader.changed = customViewReader.changed = viewReader?.changed;
 
 	// Teach-question ARRIVAL state, applied during render — BEFORE the

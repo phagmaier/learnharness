@@ -4,7 +4,7 @@
  * and the selected-note pane; the server page runs under an isolated
  * LH_DATA_DIR (set before any config-loading import).
  */
-import React from "react";
+import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
 
 import assert from "node:assert/strict";
@@ -14,13 +14,17 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
+import { createRoot } from "react-dom/client";
+import { installModalDom } from "./modal-dom.ts";
+import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
+import { ServerEventsProvider } from "../components/server-events.tsx";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-notes-page-"));
 process.env.LH_DATA_DIR = TMP;
 
 const {
 	EMPTY_NOTES, INTERACTIVE_LABEL, NEW_NOTE_PLACEHOLDER, NoteFrame, NoteListRow, NotePane, NoteRequestForm,
-	noteFrameSandbox, sortNotes,
+	noteFrameSandbox, sortNotes, NotesPage,
 } = await import("../components/notes-page.tsx");
 type NoteView = import("../components/notes-page.tsx").NoteView;
 const { NotesChip } = await import("../components/notes-chip.tsx");
@@ -35,6 +39,44 @@ const note = (over: Partial<NoteView>): NoteView => ({
 });
 const dom = (html: string) => parseHTML(`<!doctype html><html><body>${html}</body></html>`).document;
 const noop = () => {};
+
+for (const outcome of ["offline", "server-error", "deleted", "already-deleted"] as const) {
+	it(`note deletion handles ${outcome} without losing a note on failure`, async () => {
+		const pageDom = parseHTML('<html><body><div id="root"></div></body></html>');
+		const globals = { window: pageDom.window, self: pageDom.window, document: pageDom.document, Element: pageDom.window.Element, HTMLElement: pageDom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+		const saved = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+		Object.assign(globalThis, globals);
+		const restoreModal = installModalDom(pageDom);
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async (_url, init) => {
+			if (init?.method !== "DELETE" || outcome === "offline") throw new TypeError("offline");
+			return Response.json({ error: "Deletion refused by storage." }, { status: outcome === "server-error" ? 500 : outcome === "already-deleted" ? 404 : 200 });
+		};
+		const root = createRoot(pageDom.document.getElementById("root")!);
+		try {
+			await act(async () => root.render(<InteractionLayersProvider><ServerEventsProvider connect={() => ({ onEvent() {}, onOpen() {}, close() {} })}><NotesPage chatId="chat" title="Session" initialNotes={[note({})]} /></ServerEventsProvider></InteractionLayersProvider>));
+			const click = async (id: string) => {
+				const button = pageDom.document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+				assert.ok(button, id);
+				await act(async () => button.click());
+			};
+			await click("note-delete");
+			await click("delete-note-confirm");
+			const failed = outcome === "offline" || outcome === "server-error";
+			assert.equal(pageDom.document.querySelector("[data-note-id=note_a]") !== null, failed);
+			assert.equal(pageDom.document.querySelector("[data-testid=note-frame]") !== null, failed);
+			if (failed) assert.ok(pageDom.document.body.textContent?.includes(outcome === "offline" ? "Couldn't reach the app. Try again." : "Deletion refused by storage."));
+		} finally {
+			await act(async () => root.unmount());
+			globalThis.fetch = originalFetch;
+			restoreModal();
+			for (const [key, descriptor] of saved) {
+				if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+				else Reflect.deleteProperty(globalThis, key);
+			}
+		}
+	});
+}
 
 describe("note list rows", () => {
 	it("show each state: ready, writing, failed, stopped, rewriting; the instruction's first line or Default note; the Interactive tag", () => {

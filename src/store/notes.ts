@@ -2,13 +2,14 @@
  * NoteStore — study notes on disk (fork plan 03). One owner directory per
  * session (data/notes/<chatId>/; phase 1 puts unit notes under a course):
  *
- *   notes.json       { version: 1, notes: NoteEntry[] }
- *   <noteId>.html    the final, self-contained page
+ *   notes.json                   { version: 2, notes: NoteEntry[] }
+ *   <noteId>.<htmlRevision>.html  the final, self-contained page
+ *   <noteId>.html                 legacy v1 page (read until rewritten)
  *
  * Sync fs like the chat store, so each read-modify-write of the index is
  * one uninterrupted step even while several notes are being written. A note
- * file is replaced by temp file and rename, so a failed rewrite never
- * touches the version already on disk.
+ * revision is written before the index atomically selects it. A failed
+ * publication never touches the current revision or its metadata.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -42,6 +43,8 @@ export interface NoteStore {
 	/** Remove the entry and its file. */
 	remove(noteId: string): boolean;
 	readHtml(noteId: string): string | null;
+	/** Publish HTML and metadata together; the index rename is the commit. */
+	publish(noteId: string, html: string, change: (entry: NoteEntry) => NoteEntry): NoteEntry | undefined;
 	writeHtml(noteId: string, html: string): void;
 	/** Remove the whole owner directory. */
 	removeAll(): void;
@@ -49,7 +52,8 @@ export interface NoteStore {
 
 export function noteStoreAt(dir: string): NoteStore {
 	const indexFile = path.join(/* turbopackIgnore: true */ dir, INDEX);
-	const htmlFile = (noteId: string) => path.join(/* turbopackIgnore: true */ dir, `${safeId(noteId, "note")}.html`);
+	const htmlFile = (noteId: string, revision?: string) => path.join(/* turbopackIgnore: true */ dir,
+		`${safeId(noteId, "note")}${revision ? `.${safeId(revision, "revision")}` : ""}.html`);
 
 	const load = (): NotesIndex => {
 		let text: string;
@@ -74,7 +78,34 @@ export function noteStoreAt(dir: string): NoteStore {
 	};
 	const save = (notes: NoteEntry[]) => {
 		fs.mkdirSync(dir, { recursive: true });
-		writeFileAtomicSync(indexFile, JSON.stringify({ version: CURRENT_NOTES_VERSION, notes }, null, "\t"), { allowInPlaceFallback: true });
+		writeFileAtomicSync(indexFile, JSON.stringify({ version: CURRENT_NOTES_VERSION, notes }, null, "\t"));
+	};
+	// Cleanup cannot turn a committed publication into a reported failure.
+	const discard = (file: string) => {
+		try { fs.rmSync(file, { force: true }); }
+		catch (error) { console.warn(`[notes] could not remove unused HTML ${file}:`, error); }
+		removeLeftoverTemps(file);
+	};
+	const publish: NoteStore["publish"] = (noteId, html, change) => {
+		const { notes } = load();
+		const index = notes.findIndex((note) => note.id === noteId);
+		if (index === -1) return undefined;
+		const previous = notes[index]!;
+		const previousFile = htmlFile(noteId, previous.htmlRevision);
+		const revision = crypto.randomUUID();
+		const file = htmlFile(noteId, revision);
+		const next = { ...change(previous), htmlRevision: revision };
+		fs.mkdirSync(dir, { recursive: true });
+		try {
+			writeFileAtomicSync(file, html);
+			notes[index] = next;
+			save(notes);
+		} catch (error) {
+			discard(file);
+			throw error;
+		}
+		discard(previousFile);
+		return next;
 	};
 
 	return {
@@ -96,27 +127,26 @@ export function noteStoreAt(dir: string): NoteStore {
 			return next;
 		},
 		remove(noteId) {
-			const file = htmlFile(noteId);
+			safeId(noteId, "note");
 			const { notes } = load();
 			const kept = notes.filter((note) => note.id !== noteId);
 			if (kept.length === notes.length) return false;
 			save(kept);
-			fs.rmSync(file, { force: true });
-			removeLeftoverTemps(file);
+			for (const name of fs.readdirSync(dir)) {
+				if (name.startsWith(`${noteId}.`) && /\.html(?:\.tmp-.*)?$/.test(name)) discard(path.join(dir, name));
+			}
 			return true;
 		},
 		readHtml(noteId) {
 			try {
-				return fs.readFileSync(/* turbopackIgnore: true */ htmlFile(noteId), "utf-8");
+				const note = load().notes.find((entry) => entry.id === noteId);
+				return note ? fs.readFileSync(/* turbopackIgnore: true */ htmlFile(noteId, note.htmlRevision), "utf-8") : null;
 			} catch {
 				return null;
 			}
 		},
-		writeHtml(noteId, html) {
-			const file = htmlFile(noteId);
-			fs.mkdirSync(dir, { recursive: true });
-			writeFileAtomicSync(file, html);
-		},
+		publish,
+		writeHtml: (noteId, html) => { safeId(noteId, "note"); publish(noteId, html, (entry) => entry); },
 		removeAll() {
 			fs.rmSync(dir, { recursive: true, force: true });
 		},

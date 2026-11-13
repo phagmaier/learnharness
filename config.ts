@@ -33,7 +33,7 @@ export const PATHS = {
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
 	/** Study notes of standalone sessions (fork plan 03):
-	 * notes/<chatId>/notes.json plus one <noteId>.html per note. */
+	 * notes/<chatId>/notes.json selects each note's immutable HTML revision. */
 	notes: path.join(/* turbopackIgnore: true */ DATA_ROOT, "notes"),
 } as const;
 

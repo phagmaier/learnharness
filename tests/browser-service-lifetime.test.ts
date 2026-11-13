@@ -20,7 +20,8 @@ function helperFixture(connected = true, channel = true) {
 	const appReady = new Promise<void>((resolve) => { allowAppReady = resolve; });
 	let allowReadiness!: () => void;
 	const readiness = new Promise<void>((resolve) => { allowReadiness = resolve; });
-	const state = { quits: 0, exits: [] as number[], windows: 0, readinessCalls: 0, stdinReads: 0, signal: undefined as AbortSignal | undefined };
+	const state = { quits: 0, exits: [] as number[], windows: 0, readinessCalls: 0, stdinReads: 0, signal: undefined as AbortSignal | undefined,
+		paths: new Map<string, string>(), removedProfiles: [] as string[], profile: "/fixture/temp/browser-service-profile" };
 	const logs: string[] = [];
 	const errors: string[] = [];
 	// Match Electron 44's Windows override, not a native pipe.
@@ -31,10 +32,11 @@ function helperFixture(connected = true, channel = true) {
 		connected, channel: channel ? {} : undefined,
 	});
 	Object.defineProperty(process, "stdin", { get() { state.stdinReads++; return stdin; } });
-	const app = {
-		setName() {}, getPath: () => "/fixture/user-data", setPath() {}, commandLine: { appendSwitch() {} }, whenReady: () => appReady,
-		quit() { state.quits++; }, exit(code: number) { state.exits.push(code); },
-	};
+	const app = Object.assign(new EventEmitter(), {
+		setName() {}, getPath: (key: string) => state.paths.get(key) ?? "/fixture/app-data", setPath(key: string, value: string) { state.paths.set(key, value); },
+		commandLine: { appendSwitch() {} }, whenReady: () => appReady,
+		quit() { state.quits++; app.emit("quit"); }, exit(code: number) { state.exits.push(code); app.emit("quit"); },
+	});
 	class FakeWindow {
 		constructor() { state.windows++; }
 		async loadURL(url: string) { assert.equal(url, "about:blank"); }
@@ -57,6 +59,7 @@ function helperFixture(connected = true, channel = true) {
 	runInNewContext(mainSource, {
 		require: (id: string) => id === "electron" ? { app, BrowserWindow: FakeWindow }
 			: id === "node:net" ? net
+			: id === "node:fs" ? { ...requireMain(id), mkdtempSync: () => state.profile, rmSync: (dir: string) => state.removedProfiles.push(dir) }
 			: id === "./browser-service-readiness.cjs" ? { waitForBrowserService }
 			: requireMain(id),
 		process, __dirname: dirname(mainFile), AbortController,
@@ -69,6 +72,16 @@ function helperFixture(connected = true, channel = true) {
 }
 
 describe("browser-service IPC-owned lifetime", () => {
+	it("isolates both Chromium paths before readiness and removes the profile after parent disconnect", async () => {
+		const helper = helperFixture();
+		assert.deepEqual([...helper.state.paths], [["userData", helper.state.profile], ["sessionData", helper.state.profile]]);
+		assert.ok([...helper.state.paths.values()].every(value => !value.startsWith("/fixture/app-data")));
+		assert.equal(helper.state.windows, 0);
+		helper.allowAppReady(); helper.allowReadiness();
+		await turn();
+		helper.disconnect();
+		assert.deepEqual(helper.state.removedProfiles, [helper.state.profile]);
+	});
 	it("ignores synthetic Windows stdin EOF while IPC remains connected", async () => {
 		const helper = helperFixture();
 		helper.stdin.resume();
@@ -111,6 +124,7 @@ describe("browser-service IPC-owned lifetime", () => {
 		assert.equal(helper.state.quits, 1);
 		assert.equal(helper.state.windows, 0);
 		assert.deepEqual(helper.logs, []);
+		assert.deepEqual(helper.state.removedProfiles, [helper.state.profile]);
 	});
 
 	it("fails closed without both a connected IPC channel and connection state", async () => {

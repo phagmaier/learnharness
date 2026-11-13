@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import * as os from "node:os";
 import { standardFontsDir } from "./pdf-ops";
 import { svgImageSource } from "../../../lib/svg-image-source";
 import { PATHS } from "../../../config.ts";
@@ -159,21 +159,28 @@ export function browserServiceSpawnEnv(
 	// The artifact renderer is not an authorized app API client.
 	delete out.LH_DESKTOP_API_SECRET;
 	delete out.LH_DESKTOP_SERVER;
+	delete out.LH_BROWSER_SERVICE_PROFILE;
 	return out;
 }
 
-/** The helper binary: inside the packaged app the server runs under
- *  ELECTRON_RUN_AS_NODE so process.execPath IS the app binary; in dev
- *  (plain node) the electron package resolves to the dev binary path. */
-export function browserServiceBinary(): string | null {
-	if (process.versions.electron) return process.execPath;
+/** Next dev runs from its project directory. Its bundled import.meta.url
+ *  may name /ROOT rather than a real file, so resolve both the package and
+ *  app argument from that filesystem anchor. Packaged servers self-execute. */
+export function browserServiceLaunch(): { binary: string; args: string[] } | null {
+	if (process.versions.electron) return { binary: process.execPath, args: ["--browser-service"] };
 	try {
-		const req = createRequire(import.meta.url);
+		const root = fs.realpathSync(process.cwd());
+		if (!fs.existsSync(path.join(root, "electron", "main.cjs"))) return null;
+		const req = createRequire(path.join(root, "package.json"));
 		const p = req("electron") as unknown as string;
-		return typeof p === "string" && p.length > 0 ? p : null;
+		return typeof p === "string" && p.length > 0 ? { binary: p, args: [root, "--browser-service"] } : null;
 	} catch {
 		return null;
 	}
+}
+
+export function browserServiceBinary(): string | null {
+	return browserServiceLaunch()?.binary ?? null;
 }
 
 const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
@@ -195,22 +202,21 @@ async function connectBrowserService(): Promise<ConnectedBrowserService | null> 
 		port = (proc as { __cdpPort?: number }).__cdpPort ?? null;
 	}
 	if (port === null) {
-		const binary = browserServiceBinary();
-		if (!binary) return null;
-		// Packaged: execPath runs the bundled app (flag reaches main.cjs).
-		// Dev: the bare electron binary needs the repo root as the app arg —
-		// flagless it would open Electron's default app instead of our shell.
-		const appArgs = process.versions.electron ? ["--browser-service"] : [
-			// src/agent/subagents → repo root
-			path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
-			"--browser-service",
-		];
-		proc = spawn(binary, appArgs, {
-			// Cast: the sanitizer is pure over a loose record; NODE_ENV is
-			// always present in a real process.env.
-			env: browserServiceSpawnEnv(process.env) as NodeJS.ProcessEnv,
-			stdio: ["ignore", "pipe", "pipe", "ipc"] as const,
-		});
+		const launch = browserServiceLaunch();
+		if (!launch) return null;
+		const profile = fs.mkdtempSync(path.join(os.tmpdir(), "learnharness-browser-service-"));
+		const removeProfile = () => {
+			try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
+			catch { /* Temporary files may remain after an abrupt shutdown. */ }
+		};
+		try {
+			proc = spawn(launch.binary, launch.args, {
+				env: { ...browserServiceSpawnEnv(process.env), NODE_ENV: process.env.NODE_ENV, LH_BROWSER_SERVICE_PROFILE: profile },
+				stdio: ["ignore", "pipe", "pipe", "ipc"] as const,
+			});
+		} catch (error) { removeProfile(); throw error; }
+		proc.once("exit", removeProfile);
+		proc.once("error", removeProfile);
 		browserServiceProc = proc;
 		const startingProc = proc;
 		port = await new Promise<number | null>((resolve) => {

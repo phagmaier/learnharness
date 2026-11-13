@@ -124,6 +124,8 @@ Additional runtime gates have prerequisites:
 | `node scripts/smoke-web-subscriptions.mjs` | Build, no dev server running; isolated synthetic connection checks, external traffic blocked. Briefly changes/restores a source mtime to exercise reload. |
 | `node scripts/build-plugin-types.mjs` | Builds the portable type-only plugin SDK under `dist/plugin-sdk`. |
 | `node scripts/build-server.mjs` then `node scripts/smoke-server.mjs --isolated --browser` | Fresh build; assemble/verify a source-free standalone copy, installed plugin backends and browser UI. Add `--electron` for Electron's bundled Node; browser checks require local Chrome/Chromium. |
+| `node scripts/smoke-browser-service.mjs` | Real Electron helper: synthetic page, temporary profile, untouched regular/dev profiles, parent-disconnect shutdown and cleanup. On NixOS run through `nix develop -c mise exec --`. |
+| `node scripts/smoke-dev-runtime.mjs` | No dev server running. Stages plugins through `npm run dev`, verifies real Chat/Dock SSR and Electron Mermaid/demo execution without `CHROME_PATH`, then removes its temporary probe route and scratch data. On NixOS run through `nix develop -c mise exec --`. Add `--hold` to inspect the printed scratch URL in a browser; Ctrl-C cleans up. |
 | Other `scripts/smoke-*.mjs` | Standalone/native renderers, image workers, demo helper, compression, file paths, opening. Read each script and the [release guide](desktop-release.md) before running. |
 
 Run checks proportionate to the change. Offline gates prove exercised contracts, not live entitlements or model-authored lesson quality.

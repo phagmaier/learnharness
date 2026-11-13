@@ -132,8 +132,7 @@ function start(record: ChatRecord, note: NoteEntry, mode: RunningNote["mode"], e
 			if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" });
 			// A note deleted mid-write leaves nothing behind.
 			if (!store.get(note.id)) return;
-			store.writeHtml(note.id, written.html);
-			store.update(note.id, ({ error: _error, stopped: _stopped, regenerating: _rewrite, ...rest }) => ({
+			store.publish(note.id, written.html, ({ error: _error, stopped: _stopped, regenerating: _rewrite, ...rest }) => ({
 				...rest,
 				title: written.title,
 				instruction: request.instruction,
@@ -178,7 +177,7 @@ function start(record: ChatRecord, note: NoteEntry, mode: RunningNote["mode"], e
 
 function readRequest(input: { instruction?: unknown; interactive?: unknown }): { instruction: string; interactive: boolean } {
 	return {
-		instruction: typeof input.instruction === "string" ? input.instruction.trim().slice(0, 4000) : "",
+		instruction: typeof input.instruction === "string" ? input.instruction.trim() : "",
 		interactive: input.interactive === true,
 	};
 }

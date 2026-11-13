@@ -67,6 +67,26 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 - **Regenerate:** keeps the current version until the new one succeeds.
 - **Setup wording (2026-11-13):** setup lists the Strong slot as "Prober, teacher, note writer". Settings keeps its descriptive "The main model for your sessions".
 
+*Human, 2026-11-13, repair-plan approval following review findings:*
+
+- **Publication:** the notes index is version 2, with an optional `htmlRevision` pointer selecting immutable HTML. Version-1 indexes and their original HTML remain readable. A failed publication preserves the previous HTML and metadata. Exact revision filenames and cleanup are agent-selected implementation details.
+- **Unanswered export questions:** include visible prompts, context, and options with "Not answered". Keep answer keys, explanations, and correctness hidden until the learner answers. Plugin questions export their saved public prompt, never private payloads.
+- **Recorded learner content:** HTML export retains plugin reading thoughts and all image channels. Markdown and note-writer input retain structured option labels and both thinking channels. Offline notes reject resources that require another file or a network request; embedded data and local SVG references remain allowed.
+- **Instructions and deletion:** preserve the full instruction without the silent 4,000-character truncation. Failed deletion keeps the note visible and shows the error; an already-absent note (404) counts as removed.
+- **Ratification and title rule:** the note-page wording listed under Plan 03 item 4's "Wording the plan didn't specify" is approved, as is the persisted `stopped: true` flag. Enforce the prompt's eight-word title rule and remove the additional 120-character restriction. The deletion connection error uses the existing "Couldn't reach the app. Try again." wording.
+
+The repair plan includes regression coverage, a browser check using a scratch profile, the required quality gate, and a final review. No dependencies are added.
+
+*Human, 2026-11-13, follow-up coverage and development-repair approval:*
+
+- Retain the preceding repairs and decisions, including the approved Markdown/note-input formatter correction. Add coverage for the remaining export outcomes and question types, stopped regeneration, simultaneous notes, note-source fidelity, and interruption between HTML staging and index publication.
+- Fix the development issues in order: isolate browser-service Chromium in a temporary profile before readiness (including parent-disconnect shutdown); initialize complete input-view bridge objects in Chat and DockOverlay; resolve the development Electron binary and app directory from a real filesystem anchor while preserving packaged execution and Chrome fallback.
+- Verify development SSR, plugin-input notifications, real Mermaid rendering and demo checking under `next dev` without `CHROME_PATH`, the required quality gate, scratch browser checks, build and standalone smokes. No dependencies or additional product/storage changes; courses, releases, packaging changes, and real learning data are excluded. Leave changes uncommitted.
+
+*Human, subsequent instruction:* commit the completed repairs, merge the feature into `main`, and delete unnecessary fully merged branches. This supersedes the preceding instruction to leave changes uncommitted.
+
+*Agent-selected implementation:* the parent allocates the helper profile and passes its path through the internal `LH_BROWSER_SERVICE_PROFILE` environment field; both Electron profile paths are set before readiness. The parent removes the profile after helper exit because Chromium may flush after Electron's quit event. The dev executable and app argument resolve from the real project working directory; packaged servers still self-execute. Input-view bridges are complete mutable objects held inside React refs. Repeatable runtime checks live in `scripts/smoke-browser-service.mjs` and `scripts/smoke-dev-runtime.mjs`.
+
 ## Feature designs
 
 ### Courses, units, and notes
@@ -186,19 +206,12 @@ Checks only the human can do, such as clicking native dialogs or menus. Remove a
 - *Step 1, right-click menu:* in `nix develop -c mise exec -- npm run desktop:dev`, right-click a misspelled word. Expect up to 5 suggestions, "Add to dictionary", then the editing items.
 - *Step 2, first-launch dialogs:* run the packaged build against a scratch profile (`npm run desktop:dist:linux`, then `XDG_CONFIG_HOME=<scratch>/config nix develop -c dist/linux-unpacked/learnharness-fork`, with a fake `LearnHarness` folder in the scratch config). Check the "LearnHarness is running" dialog (Retry asks again while upstream runs; once upstream quits, Retry restarts the app and copies), Quit, the "Copied…" confirmation, and the copy-failed dialog. Retry's restart inside the Hermes wrapper can only be checked in step 8.
 - *Step 3, notes and export:*
-  - In dev runs, start the server with `CHROME_PATH` set to a Chromium binary. Otherwise Mermaid diagrams show their source with a "renderer wasn't available" notice (the inherited dev-only helper issue under Open questions).
+  - On NixOS, start the dev server inside `nix develop` when testing Mermaid and demos, so the Electron helper has its native libraries. No `CHROME_PATH` is needed.
   - Write a real note from one of your sessions on your own provider (from the session's Notes chip), then regenerate it with an instruction.
   - Open a downloaded note and an exported conversation outside the app, in a browser, and print one.
   - In `nix develop -c mise exec -- npm run desktop:dev`, click a web link inside a note. It should open in the system browser.
 
 ## Open questions
-
-- **Inherited dev-only issues found in step 3 (each fix needs its own decision; details in [plan 03](plans/03-notes-and-export.md#item-4-2026-11-13)):**
-  - Under `next dev`, every chat page answers 500 and then renders on the client, because React seals ref objects during server rendering and `components/chat.tsx` assigns `inputViewReader.changed`.
-  - Under `next dev`, the browser helper can't locate the dev Electron binary (Turbopack reports module paths as `/ROOT/…`). It falls back to system Chrome, which NixOS lacks unless `CHROME_PATH` is set, so demo checks fail and note diagrams show their source.
-  - A dev browser helper keeps its Chromium profile in `~/.config/LearnHarness-Fork`, because `electron/main.cjs` sets that folder before the `--browser-service` branch.
-
-  Packaged builds are unaffected by the first two.
 
 - Feature ideas beyond those above are welcome from agents; the human builds features directly in the fork and does not need local models.
 - **Desktop PATH under mise (settled 2026-11-12: the Nix wrapper adds mise's shims to PATH; see Decisions; built in roadmap step 8).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Rejected option: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.

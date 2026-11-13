@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { setImmediate } from "node:timers/promises";
 import { it, mock } from "node:test";
@@ -20,13 +21,13 @@ function lifecycleFixture() {
 	const spawned = deferred(), heldLoad = deferred(), releaseLoad = deferred();
 	let pauseHandshake = false, connections = 0;
 	const helpers: ReturnType<typeof makeHelper>[] = [];
-	function makeHelper(id: number) {
+	function makeHelper(id: number, profile: string) {
 		let liveDocument = false, guarded = false;
 		const owner = { alive: true, failRetirement: false, holdNextLoad: false };
 		const proc = Object.assign(new EventEmitter(), {
 			exitCode: null as number | null,
 			stdout: new EventEmitter(), stderr: new EventEmitter(),
-			kill: () => { killed.push(id); owner.alive = false; proc.exitCode = 0; return true; },
+			kill: () => { killed.push(id); owner.alive = false; proc.exitCode = 0; proc.emit("exit", 0); return true; },
 		});
 		const page = Object.assign(new EventEmitter(), {
 			target: () => ({ type: () => "page" }), url: () => "about:blank",
@@ -48,10 +49,13 @@ function lifecycleFixture() {
 			return [page];
 		} } as unknown as Browser;
 		const handshake = () => proc.stdout.emit("data", Buffer.from(`BROWSER_SERVICE_CDP ${46000 + id}\n`));
-		return { id, owner, proc, page, browser, handshake, guarded: () => guarded };
+		return { id, profile, owner, proc, page, browser, handshake, guarded: () => guarded };
 	}
-	mock.method(childProcess, "spawn", (() => {
-		const helper = makeHelper(helpers.length + 1);
+	mock.method(childProcess, "spawn", ((_binary: string, _args: string[], options: childProcess.SpawnOptions) => {
+		const profile = options.env?.LH_BROWSER_SERVICE_PROFILE;
+		assert.ok(profile);
+		assert.ok(fs.statSync(profile).isDirectory(), "the actual parent creates the helper profile before spawn");
+		const helper = makeHelper(helpers.length + 1, profile);
 		helpers.push(helper);
 		spawned.resolve();
 		if (!pauseHandshake) queueMicrotask(helper.handshake);
@@ -74,7 +78,7 @@ function lifecycleFixture() {
 		dispose() {
 			// Mark mocks dead before restoring spawn: the next test must not reuse
 			// this fixture's module-global helper, or start a real process.
-			for (const helper of helpers) { helper.owner.alive = false; helper.proc.exitCode = 0; }
+			for (const helper of helpers) { helper.owner.alive = false; helper.proc.exitCode = 0; helper.proc.emit("exit", 0); assert.equal(fs.existsSync(helper.profile), false); }
 			mock.restoreAll(); syncBuiltinESMExports();
 		},
 	};
@@ -103,6 +107,7 @@ it("a queued production demo acquires a fresh helper after the active helper can
 		assert.equal(acquiredWhileHeld, 2, "only warm and active jobs have connected");
 		assert.deepEqual(fixture.killed, [1]);
 		assert.equal(original.owner.alive, false, "the unretired original helper is discarded");
+		assert.equal(fs.existsSync(original.profile), false, "discarding the helper removes its profile after exit");
 		assert.equal(original.guarded(), true);
 		assert.equal(original.page.listenerCount("request"), 1, "guard remains until the failed helper is killed");
 		assert.equal(fixture.helpers.length, 2);

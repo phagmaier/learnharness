@@ -58,7 +58,6 @@ const UPSTREAM_USER_DATA_DIRNAME = "LearnHarness";
 // Must run before the LH_DEV_URL suffix below — dev becomes
 // "LearnHarness-Fork-dev".
 app.setName(PRODUCT_NAME);
-app.setPath("userData", path.join(app.getPath("appData"), USER_DATA_DIRNAME));
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
 
@@ -111,6 +110,16 @@ if (process.argv.includes("--browser-service")) {
 			// real Node IPC channel, and refuse to start an unowned helper.
 			if (!process.channel || !process.connected) throw new Error("browser-service requires connected parent IPC");
 			process.once("disconnect", parentClosed);
+			// A helper must never open the learner's regular or dev profile.
+			// Chromium takes sessionData before readiness; userData alone is
+			// insufficient if Electron has already derived its session path.
+			const profile = process.env.LH_BROWSER_SERVICE_PROFILE || fs.mkdtempSync(path.join(os.tmpdir(), "learnharness-browser-service-"));
+			app.setPath("userData", profile);
+			app.setPath("sessionData", profile);
+			app.once("quit", () => {
+				try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); }
+				catch { /* The parent also cleans after exit, once Chromium has flushed. */ }
+			});
 			app.dock?.hide();
 			const port = await freePort();
 			// Must land before app-ready for Chromium to pick it up.
@@ -131,6 +140,7 @@ if (process.argv.includes("--browser-service")) {
 		}
 	})();
 } else {
+	app.setPath("userData", path.join(app.getPath("appData"), USER_DATA_DIRNAME));
 	// Dev shell (LH_DEV_URL) runs BESIDE the packaged app, not instead of it:
 	// its own userData so (a) the single-instance lock — checked below — doesn't
 	// silently kill it, and (b) it never reads/writes the real app's

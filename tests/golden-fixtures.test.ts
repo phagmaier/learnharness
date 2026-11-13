@@ -226,6 +226,7 @@ test("notes: the teach session's index reads through the notes service (fork pla
 	const [ready, stopped] = notes;
 	assert.equal(ready!.status, "ready");
 	assert.ok(ready!.title.length > 0, "a written note carries its title");
+	assert.ok(ready!.htmlRevision, "the version-2 index selects an immutable HTML revision");
 	assert.equal(ready!.usage?.steps, 1, "the latest generation's usage");
 	assert.ok(ready!.regenerating?.error, "a failed rewrite keeps the old version and its error");
 	assert.equal(stopped!.status, "failed");
