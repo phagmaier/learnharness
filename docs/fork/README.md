@@ -148,7 +148,7 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 
 Each item gets its own implementation plan, approved before work starts.
 
-1. **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
+1. *(Done 2026-11-12 on branch `small-fixes`, not yet merged; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
 2. **Fork identity and packaging:** LearnHarness Fork name and data folder, one-time data copy, updater off, personal Nix package. Done before fork-only data formats exist, so real learning data is never mixed with upstream's.
 3. **Phase 0:** on-demand HTML notes and conversation export.
 4. **Phase 1:** courses and units.
