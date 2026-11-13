@@ -58,6 +58,7 @@ const DATA_DIR = () => path.join(app.getPath("userData"), "data");
 // Resolve the saved palette before window creation; renderer reports keep
 // it current after live saves. This helper needs no compiled server bundle.
 const { normalizeAppearance, themeSourceFor, serverDataDir, readAppearance, chromeColors } = require("./appearance-chrome.cjs");
+const { contextMenuTemplate } = require("./context-menu.cjs");
 let appearance = normalizeAppearance(null);
 
 function applyChrome(win) {
@@ -401,6 +402,14 @@ function createWindow(url) {
 	win.webContents.setWindowOpenHandler(({ url: target }) => {
 		openExternalLink(target);
 		return { action: "deny" };
+	});
+	// Fork: native text menu with spelling suggestions (electron/context-menu.cjs).
+	win.webContents.on("context-menu", (_event, params) => {
+		const template = contextMenuTemplate(params, {
+			replaceMisspelling: (word) => win.webContents.replaceMisspelling(word),
+			addWord: (word) => win.webContents.session.addWordToSpellCheckerDictionary(word),
+		});
+		if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
 	});
 
 	void win.loadURL(url);
