@@ -8,8 +8,8 @@
  * back-pointer) before the course records it, and the setup session is
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
-import type { ChatCourseLink, ChatRecord, CourseRecord, CourseUnit, SessionCourseView } from "../core/contracts.ts";
-import { latestProposalCallId, uniqueUnitId, unitListProblems } from "../core/course.ts";
+import type { ChatCourseLink, ChatRecord, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
+import { applyUnitEdit, latestProposalCallId, uniqueUnitId, unitEditSummary, unitListProblems, type UnitDraft } from "../core/course.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
 import { stampSessionModel } from "./chats.ts";
@@ -136,6 +136,79 @@ export function createCourseFromSetup(body: unknown): { ok: true; courseId: stri
 	stores.chatStore.setCourseLink(setupChatId, { role: "setup", courseId: course.id });
 	const started = startUnit(course.id, units[0]!.id);
 	return { ok: true, courseId: course.id, chatId: started.ok ? started.chatId : null };
+}
+
+// ─── the course list and edits ──────────────────────────────────────────────
+
+/** The sidebar's courses, plus ids of course folders that can't be read. */
+export function listCourseSummaries(): { courses: CourseSummary[]; unreadable: string[] } {
+	const { courses, unreadable } = courseStore.list();
+	return {
+		unreadable,
+		courses: courses.map((course) => ({
+			id: course.id,
+			title: course.title,
+			createdAt: course.createdAt,
+			updatedAt: course.updatedAt,
+			setupChatId: course.setupChatId,
+			completedCount: course.units.filter((unit) => unit.status === "completed").length,
+			units: course.units.map((unit) => ({ id: unit.id, title: unit.title, status: unit.status, ...(unit.chatId ? { chatId: unit.chatId } : {}) })),
+		})),
+	};
+}
+
+/** Rename a course; the sessions keep their titles. */
+export function renameCourse(courseId: string, rawTitle: unknown): CourseRecord | CourseRefusal {
+	const title = typeof rawTitle === "string" ? rawTitle.trim() : "";
+	if (!title) return refusal(400, "The course needs a title.");
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	return courseStore.update(courseId, (current) => ({ ...current, title })) ?? refusal(404, "Unknown course");
+}
+
+function readUnitDrafts(raw: unknown): UnitDraft[] | null {
+	if (!Array.isArray(raw)) return null;
+	const drafts: UnitDraft[] = [];
+	for (const entry of raw) {
+		if (!entry || typeof entry !== "object") return null;
+		const draft = entry as Record<string, unknown>;
+		if ((draft.id !== undefined && typeof draft.id !== "string") || typeof draft.title !== "string" || typeof draft.goal !== "string") return null;
+		if (draft.startingPoint !== undefined && typeof draft.startingPoint !== "string") return null;
+		if (!Array.isArray(draft.prerequisites) || !draft.prerequisites.every((id) => typeof id === "string")) return null;
+		drafts.push({
+			...(draft.id ? { id: draft.id as string } : {}), title: draft.title, goal: draft.goal,
+			...(draft.startingPoint !== undefined ? { startingPoint: draft.startingPoint as string } : {}),
+			prerequisites: draft.prerequisites as string[],
+		});
+	}
+	return drafts;
+}
+
+/**
+ * The learner's "Edit units" (decision 5): started units may be renamed,
+ * re-goaled, reordered and re-pointed but not removed; others change
+ * freely. A real change records a learner revision.
+ */
+export function editCourseUnits(courseId: string, rawUnits: unknown): CourseRecord | CourseRefusal {
+	const drafts = readUnitDrafts(rawUnits);
+	if (!drafts) return refusal(400, "Invalid unit list");
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	const outcome = applyUnitEdit(course.units, drafts);
+	if (!outcome.ok) return refusal(400, outcome.problems[0]!, outcome.problems);
+	const changes = unitEditSummary(course.units, outcome.units);
+	if (changes.length === 0) return course;
+	const at = new Date().toISOString();
+	return courseStore.update(courseId, (current) => {
+		// Re-apply against the stored record: the drafts never carry status.
+		const fresh = applyUnitEdit(current.units, drafts);
+		if (!fresh.ok) return current;
+		return {
+			...current,
+			units: fresh.units,
+			evidence: [...current.evidence, { type: "revision", id: `revision:learner:${at}`, at, source: "learner", decision: "accepted", changes }],
+		};
+	}) ?? refusal(404, "Unknown course");
 }
 
 // ─── units ──────────────────────────────────────────────────────────────────

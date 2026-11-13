@@ -1,4 +1,10 @@
-import { createCourseFromSetup } from "@/src/server";
+import { createCourseFromSetup, listCourseSummaries } from "@/src/server";
+
+/** GET /api/courses — the sidebar's course list (fork plan 04):
+ *  { courses: CourseSummary[], unreadable: courseId[] }. */
+export async function GET() {
+	return Response.json(listCourseSummaries());
+}
 
 /**
  * POST /api/courses — create a course from a setup session's proposal, as

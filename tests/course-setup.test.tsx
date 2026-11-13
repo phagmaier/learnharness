@@ -390,6 +390,7 @@ describe("the proposal card", () => {
 	it("after creation the proposal is read-only and the band replaces the composer", () => {
 		const html = render("prop-2", { latestCallId: "prop-2", courseId: "course_1" });
 		assert.ok(html.includes(">Course created<") && !html.includes("<input"));
+		assert.ok(html.includes('data-state="created"') && html.includes("<details"), "collapsed once the course exists");
 		const band = renderToStaticMarkup(<CourseClosedBand view={{ role: "setup", courseId: "course_1" }} />);
 		assert.ok(band.includes("This course has been created."));
 		assert.ok(band.includes('href="/course/course_1"') && band.includes("Open course"));

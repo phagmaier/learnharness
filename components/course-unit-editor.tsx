@@ -19,7 +19,10 @@ import { cn } from "@/lib/utils";
  * (src/core/course.ts); this is the presentation.
  */
 
-const FIELD = "lh-input w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 outline-none transition-colors hover:border-border focus:border-ring field-sizing-content";
+// Rings, not borders: the app's unlayered `* { border-color }` rule wins
+// over every border-color utility.
+export const EDITOR_FIELD = "lh-input w-full resize-none rounded-md bg-transparent px-2 py-1 outline-none ring-1 ring-inset ring-border/50 transition-shadow hover:ring-border focus:ring-ring field-sizing-content";
+const FIELD = EDITOR_FIELD;
 
 export function UnitListEditor({
 	units,
@@ -149,11 +152,11 @@ export function UnitListView({ units }: { units: readonly UnitDraftRow[] }) {
 						<span className="w-6 shrink-0 text-right font-ui text-xs leading-6 text-muted-foreground">{index + 1}</span>
 						<div className="min-w-0 flex-1">
 							<div className="flex flex-wrap items-baseline gap-x-2">
-								<span className="font-medium">{row.title}</span>
+								<span className="font-prose font-medium">{row.title}</span>
 								{buildsOn.length > 0 && <span className="font-ui text-[11px] text-muted-foreground">Builds on {buildsOn.join(", ")}</span>}
 							</div>
-							<p className="text-sm">{row.goal}</p>
-							{row.startingPoint && <p className="text-sm text-muted-foreground">{row.startingPoint}</p>}
+							<p className="font-prose text-sm">{row.goal}</p>
+							{row.startingPoint && <p className="font-prose text-sm text-muted-foreground">{row.startingPoint}</p>}
 						</div>
 					</li>
 				);

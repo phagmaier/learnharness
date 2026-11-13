@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ChevronRightIcon, DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -17,9 +17,18 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
-import type { ChatKind, ChatListItem } from "@/src/core";
+import type { ChatKind, ChatListItem, CourseSummary } from "@/src/core";
+import {
+	courseCount,
+	readCollapsedCourses,
+	sessionListEntries,
+	walkTargets,
+	writeCollapsedCourses,
+	type CourseRow,
+	type SessionKindFilter,
+	type SessionListEntry,
+} from "@/components/session-list";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { PluginWidgets } from "@/components/plugins";
@@ -321,6 +330,7 @@ export function SessionRow({
 			type="button"
 			onClick={onOpen}
 			onContextMenu={onContextMenu}
+			data-walk-row=""
 			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
 			className={cn(
 				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
@@ -406,14 +416,180 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 
 /** The three-way kind filter (practice sessions, owner 2026-10-04):
  *  Teaching / All / Practice — a client-side filter over the same
- *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
+ *  snapshot, persisted in localStorage, defaulting to All. Course groups
+ *  show under Teaching and All (fork plan 04). */
+export type { SessionKindFilter };
+
+/**
+ * A course group (fork plan 04 item 3): the header opens the overview and
+ * its chevron collapses the group; inside, the setup session and every
+ * unit in course order. Units that haven't started are muted rows that
+ * open the overview at that unit. Exported for render tests.
+ */
+export function CourseGroup({
+	entry,
+	pathname,
+	kbdKey = null,
+	onToggle,
+	onOpen,
+	onHeaderContextMenu,
+	onRowContextMenu,
+	renaming = false,
+	onRenameCommit,
+	onRenameCancel,
+}: {
+	entry: Extract<SessionListEntry, { kind: "course" }>;
+	pathname: string | null;
+	kbdKey?: string | null;
+	onToggle: () => void;
+	onOpen: (href: string) => void;
+	onHeaderContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	onRowContextMenu?: (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => void;
+	renaming?: boolean;
+	onRenameCommit?: (next: string) => void;
+	onRenameCancel?: () => void;
+}) {
+	const { course, rows, collapsed } = entry;
+	const headerActive = pathname === `/course/${course.id}` || pathname === `/course/${course.id}/notes`;
+	return (
+		<div data-testid="course-group" data-course={course.id} className="mb-0.5">
+			<div className={cn("flex items-center rounded-lg transition-colors", headerActive && "bg-accent")}>
+				<button
+					type="button"
+					aria-label={collapsed ? "Expand course" : "Collapse course"}
+					aria-expanded={!collapsed}
+					data-testid="course-group-toggle"
+					onClick={onToggle}
+					className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					<ChevronRightIcon className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")} />
+				</button>
+				{renaming ? (
+					<CourseRenameInput title={course.title} onCommit={(next) => onRenameCommit?.(next)} onCancel={() => onRenameCancel?.()} />
+				) : (
+					<button
+						type="button"
+						data-walk-row=""
+						data-testid={kbdKey === entry.key ? "course-row-kbd" : "course-row"}
+						onClick={() => onOpen(entry.href)}
+						onContextMenu={onHeaderContextMenu}
+						className={cn(
+							"flex min-w-0 flex-1 items-center gap-2 rounded-lg py-2 pl-1 pr-3 text-left transition-colors hover:bg-accent",
+							kbdKey === entry.key && !headerActive && "bg-accent/60 ring-1 ring-border",
+						)}
+					>
+						<GraduationCapIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+						<span className="min-w-0 flex-1 truncate font-prose text-(length:--lh-prose-size)">{course.title}</span>
+						<span data-testid="course-count" className="shrink-0 font-ui text-xs tabular-nums text-muted-foreground">{courseCount(course)}</span>
+					</button>
+				)}
+			</div>
+			{!collapsed && rows.length > 0 && (
+				<div className="ml-3.5 border-l border-border/70 pl-1.5">
+					{rows.map((row) => (
+						<CourseMemberRow
+							key={row.key}
+							row={row}
+							active={row.chat !== null && row.href.startsWith("/chat/") && isSessionPath(pathname, row.chat.id)}
+							kbdSelected={kbdKey === row.key}
+							onOpen={() => onOpen(row.href)}
+							onContextMenu={row.chat && row.href.startsWith("/chat/") && onRowContextMenu ? (e) => onRowContextMenu(e, row.chat!) : undefined}
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+function courseRowMeta(row: CourseRow): string {
+	if (row.kind === "unit" && row.unit.status === "not-started") return "Not started";
+	if (row.chat) return sessionMeta(row.chat);
+	return row.kind === "unit" && row.unit.status === "completed" ? "Completed" : "";
+}
+
+function CourseMemberRow({ row, active, kbdSelected, onOpen, onContextMenu }: {
+	row: CourseRow;
+	active: boolean;
+	kbdSelected: boolean;
+	onOpen: () => void;
+	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+	const muted = row.kind === "unit" && row.unit.status === "not-started";
+	const title = row.kind === "setup" ? "Setup" : `${row.number} · ${row.unit.title}`;
+	const meta = courseRowMeta(row);
+	return (
+		<button
+			type="button"
+			data-walk-row=""
+			data-testid={kbdSelected ? "course-member-row-kbd" : "course-member-row"}
+			data-row={row.kind}
+			onClick={onOpen}
+			onContextMenu={onContextMenu}
+			className={cn(
+				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-accent",
+				active && "bg-accent",
+				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
+				muted && "text-muted-foreground/70",
+			)}
+		>
+			<SessionStatus busy={!!row.chat && (row.chat.busy || row.chat.compacting)} />
+			<span className="min-w-0 flex-1">
+				<span className="block truncate font-prose text-(length:--lh-prose-size)">{title}</span>
+				{meta && <span className="block text-xs text-muted-foreground">{meta}</span>}
+			</span>
+		</button>
+	);
+}
+
+function CourseRenameInput({ title, onCommit, onCancel }: { title: string; onCommit: (next: string) => void; onCancel: () => void }) {
+	const [draft, setDraft] = useState(title);
+	const interactions = useOptionalInteractionLayers();
+	const inputRef = useRef<HTMLInputElement | null>(null);
+	useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+	return (
+		<input
+			ref={inputRef}
+			value={draft}
+			spellCheck={false}
+			aria-label="Rename course"
+			data-testid="course-rename-input"
+			onChange={(e) => setDraft(e.target.value)}
+			onBlur={() => onCommit(draft)}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") e.currentTarget.blur();
+				if (e.key === "Escape") {
+					if (interactions && !interactions.isElementEligible(e.currentTarget)) return;
+					interactions?.claimEscape(e);
+					e.stopPropagation();
+					onCancel();
+				}
+			}}
+			className="lh-input my-1.5 mr-3 min-w-0 flex-1 truncate border-0 border-b border-border bg-transparent px-1 text-foreground outline-none"
+		/>
+	);
+}
+
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
 	const interactions = useInteractionLayers();
 	const { open, toggle } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
+	// Fork plan 04: the courses that group sessions, and the groups this
+	// device keeps collapsed.
+	const [courses, setCourses] = useState<CourseSummary[]>([]);
+	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+	useEffect(() => { setCollapsed(readCollapsedCourses()); }, []);
+	const toggleCollapsed = useCallback((courseId: string) => {
+		setCollapsed((prev) => {
+			const next = new Set(prev);
+			if (next.has(courseId)) next.delete(courseId);
+			else next.add(courseId);
+			writeCollapsedCourses(next);
+			return next;
+		});
+	}, []);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
 	useEffect(() => {
@@ -438,21 +614,11 @@ function SessionsSidebar() {
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
-	 * keeps the natural list order (scores are all 0, sort is stable). */
-	const shown = useMemo(() => {
-		const q = query.trim();
-		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (c.kind ?? "teach") === kindFilter);
-		}
-		if (!list) return list;
-		if (!q) return list;
-		return list
-			.map((c) => ({ c, score: fuzzyScore(q, c.title) }))
-			.filter((r): r is { c: (typeof list)[number]; score: number } => r.score !== null)
-			.sort((a, b) => b.score - a.score)
-			.map((r) => r.c);
-	}, [chats, query, kindFilter]);
+	 * keeps the activity order. Fork plan 04: courses group their sessions
+	 * (session-list.ts); the search walk covers every openable row. */
+	const shown = useMemo(() => chats === null ? null : sessionListEntries({ chats, courses, filter: kindFilter, query, collapsed }),
+		[chats, courses, query, kindFilter, collapsed]);
+	const walk = useMemo(() => walkTargets(shown ?? []), [shown]);
 
 	const refreshInFlightRef = useRef(false);
 	const refresh = useCallback(async () => {
@@ -462,8 +628,13 @@ function SessionsSidebar() {
 		if (refreshInFlightRef.current) return;
 		refreshInFlightRef.current = true;
 		try {
-			const res = await fetch("/api/chats", { cache: "no-store" });
+			const [res, courseRes] = await Promise.all([
+				fetch("/api/chats", { cache: "no-store" }),
+				fetch("/api/courses", { cache: "no-store" }).catch(() => null),
+			]);
 			const d = (await res.json()) as { chats: ChatListItem[] };
+			const c = courseRes?.ok ? ((await courseRes.json()) as { courses?: CourseSummary[] }) : null;
+			if (c?.courses) setCourses(c.courses);
 			setChats(d.chats);
 		} catch {
 			// a transient failure keeps the last snapshot
@@ -535,6 +706,7 @@ function SessionsSidebar() {
 		}, 250);
 	};
 	useServerEvent("chats-changed", scheduleEventRefresh);
+	useServerEvent("courses-changed", scheduleEventRefresh);
 	useServerEvent("turn-started", scheduleEventRefresh);
 	useServerEvent("turn-settled", scheduleEventRefresh);
 	useServerEvent("compaction-changed", scheduleEventRefresh);
@@ -569,32 +741,60 @@ function SessionsSidebar() {
 	   right-clicked — assigned into a ref before the state flip so the
 	   shell measures it on its first (hidden) pass. */
 	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
+	// Fork plan 04: a session inside a course group offers the exports only;
+	// a group's header has its own menu.
+	const [ctxGrouped, setCtxGrouped] = useState(false);
+	const [ctxCourseId, setCtxCourseId] = useState<string | null>(null);
+	const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null);
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
 
-	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
+	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem, grouped = false) => {
 		e.preventDefault(); // suppress the native menu
 		ctxAnchorRef.current = e.currentTarget;
+		setCtxCourseId(null);
+		setCtxGrouped(grouped);
 		setCtxChatId(chat.id);
 	};
+	const openCourseContext = (e: React.MouseEvent<HTMLButtonElement>, courseId: string) => {
+		e.preventDefault();
+		ctxAnchorRef.current = e.currentTarget;
+		setCtxChatId(null);
+		setCtxCourseId(courseId);
+	};
+	const commitCourseRename = useCallback(async (courseId: string, next: string) => {
+		setRenamingCourseId(null);
+		const title = next.trim();
+		if (!title) return;
+		try {
+			const res = await fetch(`/api/courses/${encodeURIComponent(courseId)}`, {
+				method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+			});
+			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
+			setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, title } : c)));
+		} catch (err) {
+			console.error("course rename failed:", err);
+		}
+	}, []);
 
 	// The menu contract (agent-section's): any pointerdown outside the menu
 	// or its row closes it; Esc is CLAIMED so it never also aborts a turn
 	// or folds the sidebar. Right-clicking another row re-anchors: its
 	// pointerdown closes this menu, its contextmenu opens the next.
 	useEffect(() => {
-		if (ctxChatId === null) return;
+		if (ctxChatId === null && ctxCourseId === null) return;
 		const onPointerDown = (e: PointerEvent) => {
-			if (!interactions.isElementEligible(document.querySelector<HTMLElement>('[data-testid="session-context-menu"]'))) return;
+			if (!interactions.isElementEligible(document.querySelector<HTMLElement>('[data-testid="session-context-menu"], [data-testid="course-context-menu"]'))) return;
 			const target = e.target as Node;
 			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
 			if (ctxAnchorRef.current?.contains(target)) return;
 			setCtxChatId(null);
+			setCtxCourseId(null);
 		};
 		document.addEventListener("pointerdown", onPointerDown);
 		return () => document.removeEventListener("pointerdown", onPointerDown);
-	}, [ctxChatId, interactions]);
+	}, [ctxChatId, ctxCourseId, interactions]);
 
 	// Inline rename (owner ruling, wave 6): the row swaps to a text input;
 	// commit rides the SAME plumbing as the header rename — PUT the title,
@@ -649,8 +849,9 @@ function SessionsSidebar() {
 	// buttons, so the index matches).
 	useEffect(() => {
 		if (kbdIndex === null) return;
-		listRef.current?.querySelectorAll("button")[kbdIndex]?.scrollIntoView({ block: "nearest" });
+		listRef.current?.querySelectorAll("[data-walk-row]")[kbdIndex]?.scrollIntoView({ block: "nearest" });
 	}, [kbdIndex]);
+	const kbdKey = kbdIndex !== null ? walk[kbdIndex]?.key ?? null : null;
 
 	useEffect(() => {
 		if (!open) return;
@@ -777,7 +978,7 @@ function SessionsSidebar() {
 								}
 								// Modified keys belong to the surface (⇧↵ etc.).
 								if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-								const n = shown?.length ?? 0;
+								const n = walk.length;
 								if (n === 0) return;
 								if (e.key === "ArrowDown" || e.key === "ArrowUp") {
 									// The rows move, not the caret.
@@ -789,10 +990,10 @@ function SessionsSidebar() {
 									return;
 								}
 								if (e.key === "Enter") {
-									const target = shown![kbdIndex !== null && kbdIndex < n ? kbdIndex : 0];
+									const target = walk[kbdIndex !== null && kbdIndex < n ? kbdIndex : 0];
 									if (!target) return;
 									e.preventDefault();
-									router.push(`/chat/${target.id}`);
+									router.push(target.href);
 									setKbdIndex(null);
 									e.currentTarget.blur();
 								}
@@ -840,25 +1041,42 @@ function SessionsSidebar() {
 							{query.trim() ? "No sessions match." : "No sessions yet."}
 						</div>
 					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
+						shown.map((entry) =>
+							entry.kind === "course" ? (
+								<CourseGroup
+									key={entry.key}
+									entry={entry}
+									pathname={pathname}
+									kbdKey={kbdKey}
+									onToggle={() => toggleCollapsed(entry.course.id)}
+									onOpen={(href) => {
+										setKbdIndex(null);
+										router.push(href);
+									}}
+									onHeaderContextMenu={(e) => openCourseContext(e, entry.course.id)}
+									onRowContextMenu={(e, chat) => openContext(e, chat, true)}
+									renaming={renamingCourseId === entry.course.id}
+									onRenameCommit={(next) => void commitCourseRename(entry.course.id, next)}
+									onRenameCancel={() => setRenamingCourseId(null)}
+								/>
+							) : renamingId === entry.chat.id ? (
 								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
+									key={entry.key}
+									chat={entry.chat}
+									onCommit={(next) => void commitRename(entry.chat.id, next)}
 									onCancel={() => setRenamingId(null)}
 								/>
 							) : (
 								<SessionRow
-									key={c.id}
-									chat={c}
-									active={isSessionPath(pathname, c.id)}
-									kbdSelected={i === kbdIndex}
+									key={entry.key}
+									chat={entry.chat}
+									active={isSessionPath(pathname, entry.chat.id)}
+									kbdSelected={kbdKey === entry.key}
 									onOpen={() => {
 										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
+										router.push(entry.href);
 									}}
-									onContextMenu={(e) => openContext(e, c)}
+									onContextMenu={(e) => openContext(e, entry.chat)}
 								/>
 							),
 						)
@@ -901,64 +1119,37 @@ function SessionsSidebar() {
 						preferredSide="down"
 						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
 					>
-						{/* The two management actions first, then the extraction block
-						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
-						    top, the coverage numbers + Extract affordance sit below the
-						    hairline — the block is info + a stateful affordance, the
-						    actions above it. Fetched on menu open (the block mounts WITH
-						    the menu); 409 = benign. Renders nothing on a failed read. */}
-						<button
-							type="button"
-							data-testid="ctx-rename"
-							onClick={() => {
+						<SessionMenuItems
+							chatId={ctxChatId}
+							kind={chats?.find((c) => c.id === ctxChatId)?.kind}
+							grouped={ctxGrouped}
+							onClose={() => setCtxChatId(null)}
+							onRename={() => {
 								setRenamingId(ctxChatId);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
-						>
-							Rename
-						</button>
-						{/* Export as Markdown (owner, release polish 2026-10-06): the
-					    session-markdown engine's user-facing debut — same-origin
-						    anchor download; the route's Content-Disposition names the
-						    file. Sits with the management actions, above Delete (the
-						    destructive action stays last — the danger-fence law). */}
-						<button
-							type="button"
-							data-testid="ctx-export-md"
-							onClick={() => {
-								const chatId = ctxChatId;
-								setCtxChatId(null);
-								const a = document.createElement("a");
-								a.href = `/api/chats/${chatId}/markdown`;
-								a.download = ""; // the route's filename wins
-								document.body.appendChild(a);
-								a.click();
-								a.remove();
-							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
-						>
-							Export as Markdown…
-						</button>
-						<ExportHtmlItem
-							chatId={ctxChatId}
-							kind={chats?.find((c) => c.id === ctxChatId)?.kind}
-							onPicked={() => setCtxChatId(null)}
-						/>
-						<button
-							type="button"
-							data-testid="ctx-delete"
-							onClick={() => {
+							onDelete={() => {
 								const target = chats?.find((c) => c.id === ctxChatId);
 								if (target) setDeleting(target);
 								setCtxChatId(null);
 							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-						>
-							Delete…
-						</button>
-						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
-						<CoverageMenuBlock chatId={ctxChatId} />
+						/>
+					</MenuShell>
+				)}
+				{/* A course group's header menu (fork plan 04). */}
+				{ctxCourseId !== null && (
+					<MenuShell onClose={() => { setCtxCourseId(null); return "closed"; }}
+						anchorRef={ctxAnchorRef}
+						testid="course-context-menu"
+						preferredSide="down"
+						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
+					>
+						<CourseMenuItems
+							onRename={() => {
+								setRenamingCourseId(ctxCourseId);
+								setCtxCourseId(null);
+							}}
+						/>
 					</MenuShell>
 				)}
 
@@ -970,6 +1161,88 @@ function SessionsSidebar() {
 					onDeleted={onDeleted}
 				/>
 			</aside>
+	);
+}
+
+/** The session menu's items (wave 6, fork plans 03 and 04): Rename,
+ *  the exports, Delete, then the coverage block. A session inside a course
+ *  group offers the exports only. Exported for render tests. */
+export function SessionMenuItems({ chatId, kind, grouped, onClose, onRename, onDelete }: {
+	chatId: string;
+	kind?: ChatKind;
+	grouped: boolean;
+	onClose: () => void;
+	onRename: () => void;
+	onDelete: () => void;
+}) {
+	return (
+		<>
+			{/* The two management actions first, then the extraction block
+			    (owner refinement round, 2026-09-24): Rename/Delete stay at the
+			    top, the coverage numbers + Extract affordance sit below the
+			    hairline — the block is info + a stateful affordance, the
+			    actions above it. Fetched on menu open (the block mounts WITH
+			    the menu); 409 = benign. Renders nothing on a failed read. */}
+			{/* Fork plan 04: a session inside a course group is renamed in
+			    the course view and deleted with its course — the exports only. */}
+			{!grouped && <button
+				type="button"
+				data-testid="ctx-rename"
+				onClick={onRename}
+				className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+			>
+				Rename
+			</button>}
+			{/* Export as Markdown (owner, release polish 2026-10-06): the
+		    session-markdown engine's user-facing debut — same-origin
+			    anchor download; the route's Content-Disposition names the
+			    file. Sits with the management actions, above Delete (the
+			    destructive action stays last — the danger-fence law). */}
+			<button
+				type="button"
+				data-testid="ctx-export-md"
+				onClick={() => {
+					onClose();
+					const a = document.createElement("a");
+					a.href = `/api/chats/${chatId}/markdown`;
+					a.download = ""; // the route's filename wins
+					document.body.appendChild(a);
+					a.click();
+					a.remove();
+				}}
+				className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+			>
+				Export as Markdown…
+			</button>
+			<ExportHtmlItem chatId={chatId} kind={kind} onPicked={onClose} />
+			{!grouped && <>
+			<button
+				type="button"
+				data-testid="ctx-delete"
+				onClick={onDelete}
+				className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+			>
+				Delete…
+			</button>
+			<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
+			<CoverageMenuBlock chatId={chatId} />
+			</>}
+		</>
+	);
+}
+
+/** A course header's menu (fork plan 04): rename here; deletion is per
+ *  course. Exported for render tests. */
+export function CourseMenuItems({ onRename }: { onRename: () => void }) {
+	return (
+		<button
+			type="button"
+			data-testid="ctx-course-rename"
+			onClick={onRename}
+			className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+		>
+			Rename course
+		</button>
 	);
 }
 

@@ -514,3 +514,48 @@ export function latestProposalCallId(messages: readonly LhMessage[]): string | u
 export function sessionExtracts(record: { kind?: string; course?: { role: string } }): boolean {
 	return record.kind !== "practice" && record.course?.role !== "setup";
 }
+
+/** One line per change a learner's edit made, for the revision evidence
+ *  (numbers are positions in the edited list). Empty when nothing changed. */
+export function unitEditSummary(before: readonly CourseUnit[], after: readonly CourseUnit[]): string[] {
+	const old = new Map(before.map((unit) => [unit.id, unit]));
+	const kept = new Set(after.map((unit) => unit.id));
+	const lines: string[] = [];
+	after.forEach((unit, index) => {
+		const n = index + 1;
+		const was = old.get(unit.id);
+		if (!was) { lines.push(`Added ${n}: ${unit.title}`); return; }
+		if (was.title !== unit.title) lines.push(`Renamed ${n}: ${was.title} → ${unit.title}`);
+		if (was.goal !== unit.goal) lines.push(`Changed the goal of ${n}: ${unit.title}`);
+		if ((was.startingPoint ?? "") !== (unit.startingPoint ?? "")) lines.push(`Changed the starting point of ${n}: ${unit.title}`);
+		if (was.prerequisites.join(",") !== unit.prerequisites.join(",")) lines.push(`Changed what ${n} builds on: ${unit.title}`);
+	});
+	for (const unit of before) if (!kept.has(unit.id)) lines.push(`Removed: ${unit.title}`);
+	const order = (units: readonly CourseUnit[]) => units.filter((unit) => old.has(unit.id) && kept.has(unit.id)).map((unit) => unit.id).join(",");
+	if (order(before) !== order(after)) lines.push("Reordered the units");
+	return lines;
+}
+
+/** The editor's rows for an existing course: started units are locked. */
+export function courseDraftRows(units: readonly CourseUnit[]): UnitDraftRow[] {
+	return units.map((unit) => ({
+		key: unit.id, title: unit.title, goal: unit.goal, startingPoint: unit.startingPoint ?? "",
+		prerequisites: [...unit.prerequisites], ...(hasStarted(unit) ? { locked: true } : {}),
+	}));
+}
+
+/** The edited rows as the PUT sends them: existing units by id, new ones
+ *  without, their prerequisites naming new units by `new:<index>`. */
+export function unitDraftsFromRows(rows: readonly UnitDraftRow[], existing: ReadonlySet<string>): UnitDraft[] {
+	const index = new Map(rows.map((row, i) => [row.key, i]));
+	return rows.map((row) => ({
+		...(existing.has(row.key) ? { id: row.key } : {}),
+		title: row.title, goal: row.goal, startingPoint: row.startingPoint,
+		prerequisites: row.prerequisites.map((key) => existing.has(key) ? key : `new:${index.get(key)}`),
+	}));
+}
+
+/** "3 of 8 units completed". */
+export function courseProgressLine(units: readonly Pick<CourseUnit, "status">[]): string {
+	return `${units.filter((unit) => unit.status === "completed").length} of ${units.length} units completed`;
+}

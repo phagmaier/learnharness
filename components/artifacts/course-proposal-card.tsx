@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, GraduationCapIcon } from "lucide-react";
 import { draftProblems, parseCourseProposal, type ArtifactPartProps, type CourseDraft } from "@/src/core";
-import { UnitListEditor, UnitListView } from "@/components/course-unit-editor";
+import { EDITOR_FIELD, UnitListEditor, UnitListView } from "@/components/course-unit-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +58,9 @@ export function CourseProposalCard({ part }: ArtifactPartProps) {
 	const replaced = !!setup && settled && setup.latestCallId !== part.toolCallId;
 	const created = !!setup?.courseId;
 	if (!setup || !settled || replaced || created) {
-		return <ReadOnlyProposal proposal={proposal} badge={replaced ? "Replaced" : created ? "Course created" : null} collapsed={replaced} />;
+		// Once the course exists the card is history: collapsed like a
+		// replaced proposal, since the learner's edits live in the course.
+		return <ReadOnlyProposal proposal={proposal} badge={replaced ? "Replaced" : created ? "Course created" : null} collapsed={replaced || created} />;
 	}
 	return <EditableProposal key={part.toolCallId} proposal={proposal} toolCallId={part.toolCallId} setup={setup} />;
 }
@@ -77,13 +79,13 @@ export function ReadOnlyProposal({ proposal, badge, collapsed }: { proposal: Cou
 	const body = (
 		<div className="px-3 pb-3">
 			<p className="font-title text-lg leading-snug">{proposal.title}</p>
-			<p className="mb-1 text-sm text-muted-foreground">{proposal.goal}</p>
+			<p className="mb-1 font-prose text-sm text-muted-foreground">{proposal.goal}</p>
 			<UnitListView units={proposal.units} />
 		</div>
 	);
 	if (collapsed) {
 		return (
-			<details data-testid="course-proposal-card" data-state="replaced" className="group my-3 overflow-hidden rounded-xl border bg-card/60">
+			<details data-testid="course-proposal-card" data-state={badge === "Replaced" ? "replaced" : "created"} className="group my-3 overflow-hidden rounded-xl border bg-card/60">
 				<summary className="flex cursor-pointer list-none items-center gap-2 p-3 transition-colors hover:bg-accent/40 [&::-webkit-details-marker]:hidden">
 					<ChevronRightIcon className="size-3 shrink-0 text-muted-foreground opacity-50 transition-transform group-open:rotate-90" />
 					<div className="min-w-0 flex-1"><Header badge={badge} /></div>
@@ -159,14 +161,14 @@ function EditableProposal({ proposal, toolCallId, setup }: { proposal: CourseDra
 					aria-label="Course title"
 					value={draft.title}
 					onChange={(e) => edit({ ...draft, title: e.target.value })}
-					className="lh-input w-full rounded-md border border-transparent bg-transparent px-2 py-0.5 font-title text-lg leading-snug outline-none transition-colors hover:border-border focus:border-ring"
+					className={cn(EDITOR_FIELD, "py-0.5 font-title text-lg leading-snug")}
 				/>
 				<textarea
 					aria-label="Course goal"
 					rows={1}
 					value={draft.goal}
 					onChange={(e) => edit({ ...draft, goal: e.target.value })}
-					className="lh-input w-full resize-none rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-muted-foreground outline-none transition-colors field-sizing-content hover:border-border focus:border-ring"
+					className={cn(EDITOR_FIELD, "text-sm text-muted-foreground")}
 				/>
 			</div>
 			<div className="mt-2">

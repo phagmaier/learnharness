@@ -573,3 +573,38 @@ The propositions block is left out when the unit has none.
 - **Known limits until later items:** "Open course" points at `/course/<id>`, which arrives in item 3. Unit sessions run as ordinary probes until item 4 adds their course context.
 - **Human checks owed:** the checkpoint after item 3 covers this item's look.
 
+### Item 3 (2026-11-13)
+
+- **Built:**
+  - The overview at `/course/[id]` (`components/course-overview.tsx`). The top bar carries the title (click to rename), "N of M units completed", and the Overview | Notes tabs; below are the goal and the unit list. Each unit shows its number, title, status, "Builds on …", goal and starting point, with "Start unit" or "Open".
+  - "Edit units" opens the setup card's editor, where started units can't be removed. It ends in "Save changes" and Cancel.
+  - Routes: `GET /api/courses` (`{ courses, unreadable }`), `GET`/`PUT /api/courses/:id` (rename, edit units), and `POST /api/courses/:id/units/:unitId/start`.
+  - A learner's edit records a `revision` event, source `learner`.
+  - Sidebar course groups (`components/session-list.ts` for the rules, `CourseGroup` in `components/sidebar.tsx`), as planned. Each header has a collapse chevron (remembered on this device), the title, and "completed/total". Inside are "Setup" and every unit; units that haven't started are muted and open the overview at that unit. Groups show under Teaching and All, and search matches course and unit titles.
+  - Grouped rows offer the two exports only, and the header menu has "Rename course".
+- **Agent-selected:**
+  - **What lands in later items:** the start route landed here because the service existed. The prerequisite warning comes in item 4; "Practice this unit", "Reopen unit" and the handoff disclosure in items 6 and 8; "Pending course changes" in item 7; the Notes tab's page in item 8; "Delete course…" in item 9.
+  - **Search:** a course-title match shows the whole group, while a unit-title match shows only the matching rows. Groups open while searching, and the search walk covers headers and rows.
+  - **Ordering:** groups sort by the latest activity of the record or any member session.
+  - **Revision lines:** "Added 2: …", "Renamed 3: … → …", "Changed the goal of …", "Changed the starting point of …", "Changed what 3 builds on: …", "Removed: …", and "Reordered the units". Saving an unchanged list records nothing.
+  - **Renaming a course** leaves its sessions' titles as they were (a unit session is titled when it starts).
+  - **Wording the plan didn't specify:**
+    - Section labels "Goal" and "Units"; status labels "Not started", "In progress", "Completed"; buttons "Edit units", "Save changes", "Cancel".
+    - A started unit's disabled remove button reads "This unit has started and can't be removed".
+    - Sidebar rows that haven't started read "Not started".
+  - **Look:**
+    - Titles, goals and starting points use the prose font.
+    - Editor fields use rings instead of borders, because the app's unlayered `* { border-color }` rule overrides every border-color utility (`border-transparent` included).
+    - Once its course exists, the setup proposal card collapses like a replaced one, since the edits live in the course.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Full suite: 5,491 pass, 0 fail, 4 skipped. New: `tests/course-overview.test.tsx` (13), covering route rename, edits under decision 5 with revision evidence, the version guard, list, single start, the edit summary, unit cards per status, tabs, and the sidebar's grouping, order, filter, search, collapse, rows and menus.
+  - **Browser check:** the dev server (`npm run dev`, port 3001) on a scratch profile (`LH_DATA_DIR`, `LH_AUTH_FILE` and `XDG_CONFIG_HOME` in the scratchpad), backed by a local fake OpenAI-compatible endpoint connected as a keyless custom endpoint.
+    - The browser was the desktop engine, Electron 44, launched as a scratch host (offscreen window, own profile, remote debugging) and driven by the repo's `puppeteer-core`.
+    - The full flow ran in two themes: Ivory for light and Default for dark, since the app has themes rather than a light/dark switch. It covered starting a course from the Course draft, the real setup agent's `propose_course` card (its request carried the setup doctrine and not the prober's), editing (rename, add a unit, a builds-on checkbox, the "Edited" badge), Create course opening unit 1 where the prober replied, the overview, the sidebar group, "Edit units" with the started unit's remove disabled, and the closed setup session with its band.
+    - Only the dictation token's expected 503 appeared in the console.
+- **Found, inherited, not fixed (dev tooling only):**
+  - **Helium:** in the Chromium build the Playwright MCP uses, every POST from a page takes about 4 seconds and the page then reloads. This happens on `main` too, in dev and production, while Electron is unaffected; the checks therefore use Electron.
+  - **Playwright MCP logs:** the MCP writes its logs into `.playwright-mcp/` inside the repo, which makes `next dev` rebuild and reload in a loop. Agents should not drive the dev server with it.
+  - **Self-sustaining rebuild loop:** once, `next dev` rebuilt every few hundred milliseconds with no source change, plausibly because the inherited whole-project trace (`pdf-read.ts`, reached through the server barrel) watches `.next/dev`. Deleting `.next/dev` and restarting cleared it.
+- **Human checks owed:** the checkpoint review of the screenshots (setup card, its edit state, the overview, the sidebar group, light and dark).
