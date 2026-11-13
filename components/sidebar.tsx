@@ -619,7 +619,7 @@ function SessionsSidebar() {
 		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
 			setDeleting(null);
 			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
-			if (pathname === `/chat/${id}`) router.push("/");
+			if (isSessionPath(pathname, id)) router.push("/");
 			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
 		},
 		[pathname, router],
@@ -833,7 +833,7 @@ function SessionsSidebar() {
 								<SessionRow
 									key={c.id}
 									chat={c}
-									active={pathname === `/chat/${c.id}`}
+									active={isSessionPath(pathname, c.id)}
 									kbdSelected={i === kbdIndex}
 									onOpen={() => {
 										setKbdIndex(null);
@@ -952,6 +952,11 @@ function SessionsSidebar() {
 				/>
 			</aside>
 	);
+}
+
+/** A session's own pages: its chat and its notes page (fork plan 03). */
+export function isSessionPath(pathname: string | null, chatId: string): boolean {
+	return pathname === `/chat/${chatId}` || pathname === `/chat/${chatId}/notes`;
 }
 
 /** "Export as HTML…" in the session menu (fork plan 03): the whole Teach

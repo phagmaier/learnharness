@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–3 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–4 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -347,6 +347,40 @@ The user message holds the session title, the session text in a `<session>` bloc
   - Updated tests: the golden fixtures, role lists, and the plugin API reference.
   - `npm run build`, `scripts/build-server.mjs` and `scripts/smoke-server.mjs` passed. The build's two "dynamic filesystem access" warnings are inherited (same call sites in item 1's build); only their import traces now include the new routes.
 - **Not yet checked:** a real generation on a provider (item 4's end-to-end check and the human check).
+
+### Item 4 (2026-11-13)
+
+- **Built:**
+  - `/chat/[id]/notes` (`app/chat/[id]/notes/page.tsx`, `components/notes-page.tsx`).
+  - The "Notes" chip with its count (`components/notes-chip.tsx`) beside "Plan", on Teach sessions at any phase.
+  - The sidebar keeps the session highlighted on its notes page (`isSessionPath`).
+  - The proposed wording as planned: the placeholder, the "Interactive (widgets with scripts)" label, the empty state, and the delete question.
+- **Agent-selected:**
+  - **Wording the plan didn't specify:**
+    - List statuses: "Writing…", "Failed", "Stopped", "Rewriting…". A note without a title shows "Untitled note".
+    - The writing pane shows "Writing note…" with Stop. A failed note shows its error, or "Stopped.", with Try again and Delete.
+    - A failed rewrite reads "The rewrite failed: <error> The current version is kept."
+    - Buttons: "Write note", "Regenerate", "Cancel".
+    - The info line is "“instruction” · model · cost", and the cost is left out when unknown, as for custom endpoints.
+    - The switch's accessible name is "Invert note colors".
+  - **Implementation:**
+    - The frame's URL changes with each version, so a rewrite reloads it.
+    - The list route returns each note's `costUsd`.
+    - The response sandbox policy for notes and exports now includes `allow-popups-to-escape-sandbox`. Otherwise a web link opened from a plain note in browser mode would open with its site's scripts disabled.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning. Tests: 5399 pass, 0 fail, 4 skipped, including `tests/notes-page.test.tsx` (11).
+  - **Browser check** (dev server on a scratch profile with the golden Teach and Practice sessions):
+    - Notes were really generated end to end through a local fake OpenAI-compatible endpoint, configured as a keyless custom endpoint.
+    - The chip and its count, the Practice redirect, and the Teach-only sidebar entry all behaved as specified.
+    - Writing showed the "Note · <session>" row in Background agents. Stop, Try again, Regenerate (prefilled; the old version stays visible until the new one lands), and an interactive note in a script-enabled frame all worked.
+    - The invert switch persisted across reloads. Download headers, the delete dialog, and both export entry points worked.
+- **Found, inherited, not fixed:**
+  - In `next dev`, React seals ref objects during server rendering, so `components/chat.tsx` (`inputViewReader.changed = …`) throws. Every chat page answers 500 and then renders on the client. Production builds are unaffected.
+  - In `next dev`, the browser helper can't locate the dev Electron binary (Turbopack reports module paths as `/ROOT/…`), so it falls back to system Chrome. On this machine, without `CHROME_PATH`, demos can't be checked and note diagrams show their source with the "renderer wasn't available" notice; that fallback was observed working. With `CHROME_PATH` set to a Chromium, diagrams rendered. The packaged app runs the helper from its own executable.
+- **Owed (human):**
+  - A real note from a real session on your provider.
+  - Opening a downloaded note and an export outside the app.
+  - In the desktop app, clicking a web link in a note: it should open in the system browser.
 
 ## Not in this plan
 

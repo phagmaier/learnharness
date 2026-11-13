@@ -1,8 +1,9 @@
 /**
  * Study notes of one Teach session (fork plan 03 item 3).
  *
- * GET  → { notes }: every note, oldest first (a note the closed app left
- *        writing reads as interrupted).
+ * GET  → { notes }: every note, oldest first, with its latest
+ *        generation's costUsd (a note the closed app left writing reads as
+ *        interrupted).
  * POST { instruction?, interactive? } → 202 { note }: a new note, listed
  *        at once as writing and written in the background. Progress
  *        arrives as notes-changed events.
@@ -10,7 +11,7 @@
  * 404 unknown chat; 400 a Practice session; 409 an index this build can't
  * read; 503 no Strong model configured.
  */
-import { createNote, getChat, isNotesUnreadable, listNotes } from "@/src/server";
+import { createNote, getChat, isNotesUnreadable, listNotesWithCost } from "@/src/server";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
@@ -18,7 +19,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 	if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	if (record.kind === "practice") return Response.json({ error: "Practice sessions have no notes." }, { status: 400 });
 	try {
-		return Response.json({ notes: listNotes(id) });
+		return Response.json({ notes: listNotesWithCost(id) });
 	} catch (error) {
 		if (isNotesUnreadable(error)) return Response.json({ error: error.message }, { status: 409 });
 		throw error;

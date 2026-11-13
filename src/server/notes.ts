@@ -19,6 +19,7 @@ import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { writeNote } from "../agent/subagents/note-writer.ts";
 import { newNoteId, NotesUnreadableError, sessionNoteStore, type NoteStore } from "../store/notes.ts";
 import { documentSlug } from "./document-export.ts";
+import { jobCost } from "./pricing.ts";
 import { stores } from "./stores.ts";
 import { zipFiles } from "./zip.ts";
 
@@ -84,6 +85,11 @@ function recover(chatId: string, store: NoteStore): NoteEntry[] {
 
 export function listNotes(chatId: string): NoteEntry[] {
 	return recover(chatId, sessionNoteStore(chatId));
+}
+
+/** The notes page's list: each note with its latest generation's cost. */
+export function listNotesWithCost(chatId: string): Array<NoteEntry & { costUsd: number | null }> {
+	return listNotes(chatId).map((note) => ({ ...note, costUsd: jobCost(note) }));
 }
 
 export function getNote(chatId: string, noteId: string): NoteEntry | undefined {

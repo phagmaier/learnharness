@@ -9,8 +9,10 @@ import { conversationDocument } from "../core/document/conversation.ts";
  * URL, a file cannot act as the app's origin.
  */
 
-/** Served with every document: an opaque origin; scripts only inside it. */
-export const DOCUMENT_RESPONSE_CSP = "sandbox allow-scripts allow-popups";
+/** Served with every document: an opaque origin; scripts only inside it.
+ *  Links open as ordinary pages (popups escape the sandbox), so a web link
+ *  from a plain note still runs its site's scripts in the new tab. */
+export const DOCUMENT_RESPONSE_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
 
 /** Filename-safe title, as the Markdown export names its files. */
 export function documentSlug(title: string): string {

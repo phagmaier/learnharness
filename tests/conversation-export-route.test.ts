@@ -55,7 +55,7 @@ describe("GET /api/chats/:id/export.html", () => {
 		const res = await get(chat.id);
 		assert.equal(res.status, 200);
 		assert.equal(res.headers.get("content-type"), "text/html; charset=utf-8");
-		assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups");
+		assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox");
 		assert.equal(res.headers.get("content-disposition"), 'attachment; filename="eigenvectors-the-basics.html"');
 		const { document } = parseHTML(await res.text());
 		assert.equal(document.querySelector(".lh-doc-title")?.textContent, "Eigenvectors: the basics!");

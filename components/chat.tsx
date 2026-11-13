@@ -64,6 +64,7 @@ import {
 	type ModelSlotName,
 } from "@/src/core";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
+import { SessionNotesChip } from "@/components/notes-chip";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
@@ -1715,6 +1716,8 @@ export function Chat({
 						</button>
 </Hint>
 					)}
+					{/* Notes (fork plan 03): the session's notes page, at any phase. */}
+					{kind !== "practice" && <SessionNotesChip chatId={chatId} />}
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact

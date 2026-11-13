@@ -463,12 +463,12 @@ describe("notes routes", () => {
 
 		const view = await one.GET(new Request("http://x"), ctx({ id: chatId, noteId: note.id }));
 		assert.equal(view.status, 200);
-		assert.equal(view.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups");
+		assert.equal(view.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox");
 		assert.equal(view.headers.get("content-disposition"), null);
 		assert.ok((await view.text()).includes("Eigen basics"));
 		const download = await one.GET(new Request("http://x?download=1"), ctx({ id: chatId, noteId: note.id }));
 		assert.equal(download.headers.get("content-disposition"), 'attachment; filename="eigen-basics.html"');
-		assert.equal(download.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups");
+		assert.equal(download.headers.get("content-security-policy"), "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox");
 		assert.equal((await one.GET(new Request("http://x"), ctx({ id: chatId, noteId: "note_missing" }))).status, 404);
 
 		const zip = await archive.GET(new Request("http://x"), ctx({ id: chatId }));
