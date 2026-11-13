@@ -1,6 +1,6 @@
 # Plan 02: fork identity and packaging (roadmap step 2)
 
-**Status:** proposed 2026-11-12; awaiting the human's approval. Branch `fork-identity`.
+**Status:** approved by the human 2026-11-12; items 1–5 implemented on branch `fork-identity`, release (6) and Hermes (7) pending.
 
 Designs: [fork README](../README.md), "Fork identity, packaging, and CI" and "Desktop PATH under mise". Choices made in the 2026-11-12 interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion.
 
@@ -115,8 +115,22 @@ The agent does not run `nixos-rebuild switch` unless asked. Hermes's docs are up
 - Update `docs/fork/README.md`: roadmap step 2 done, and the desktop PATH open question closed.
 - Completion report per item: what changed, checks and results, human checks still owed, agent-selected choices.
 
+## Outcome (2026-11-12, items 1–5)
+
+- **Item 1.** *Decided (human), in place of the planned version field:* `package.json` `version` stays `0.6.1`, because the plugin loader (`src/core/plugins.ts`) and the plugin-authoring build accept only `x.y.z`, and `0.6.1-fork.1` would have stopped every plugin from loading. A new `forkRelease` field counts fork releases. `scripts/fork-version.mjs` and `next.config.ts` build the shown version from the two fields, and the Linux build passes it to electron-builder as `extraMetadata.version`.
+- *Agent-selected:* `scripts/verify-release.ts` and its test were deleted. They verified upstream's 11-asset release drafts for the `release.yml` removed in step 1, had no other callers, and failed on the new product name.
+- **Item 2.** *Agent-selected:* `UPDATER_ENABLED = false` in `main.cjs`. Upstream's updater tests still run against the kept code, with only that line flipped in the test's copy of the source. New fork tests cover the shipped, disabled path. `publish: null`, not an absent block, stops electron-builder from inferring a GitHub feed; the built package contains no `app-update.yml`.
+- **Item 3.** As planned, plus `tests/upstream-copy-shell.test.ts`, which drives the dialog flow (Retry loop, relaunch, Quit, failure, confirmation, wording) through the real `main.cjs` with a fake Electron. An AppImage relaunches through `$APPIMAGE`, since its mount disappears when the app exits.
+- **Item 4, packaged run** (`dist/linux-unpacked`, `XDG_CONFIG_HOME` scratch, fake files):
+  - With a live fake upstream lock: logged `upstream-running`, copied nothing, and showed the "LearnHarness is running" dialog. The window class is `learnharness-fork`.
+  - With a stale lock: copied, with logs excluded, `auth.json` kept at 0600, and the marker written. The "LearnHarness Fork" confirmation dialog appeared, and the upstream folder was unchanged.
+  - On the next launch: logged `already-done`, opened the window, and logged that the updater is off. Settings → General showed "Version 0.6.1-fork.1", a Release notes link to `phagmaier/learnharness/releases/tag/v0.6.1-fork.1`, and no update controls.
+  - *Not driven by the agent* (no key-sending tool on this Hyprland): clicking Retry, Quit, and OK. Retry's relaunch is covered by unit tests only.
+- **Item 5.** `desktop:dist:linux` built `dist/LearnHarness-Fork-0.6.1-fork.1-x86_64.AppImage` inside `nix develop` on the first try. electron-builder's downloaded AppImage tools run through nix-ld.
+- Full gate after item 3: typecheck, lint (1 inherited warning), and tests (5316 pass, 0 fail, 4 skipped).
+
 ## Not in this plan
 
-- **Browser storage resets on every packaged launch (found 2026-11-12, inherited from upstream).** The packaged app serves its window from `127.0.0.1` on a random port. Browser storage is keyed by origin, so per-device preferences such as step 1's "Show all models" toggle probably don't survive a restart. Not yet confirmed in a packaged run (item 4 can check it); a fix needs its own decision.
+- **Browser storage resets on every packaged launch (found 2026-11-12, inherited from upstream; confirmed in item 4).** The packaged app serves its window from `127.0.0.1` on a random port, and browser storage is keyed by origin. A value stored before a restart was gone after it (the port changed from 42733 to 40117), so per-device preferences such as step 1's "Show all models" toggle reset on every launch, and the copied Local Storage is effectively unused. A fix needs its own decision.
 - Uninstalling upstream: the human does it when ready, by removing `learnharness.nix` from Hermes.
 - GitHub repository settings (open question in the README).
