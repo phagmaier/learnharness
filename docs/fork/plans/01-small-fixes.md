@@ -74,6 +74,17 @@ Contents, per the design:
 
 **Report:** release-note summary, lockfile diff size, anything changed to compile.
 
+**Outcome (2026-11-12):**
+- *Anthropic message threads off (agent-selected; the human delegated it and uses subscriptions only).* pi 1.5.1 sends Anthropic API requests as beta "message threads" by default: only new messages, with the server keeping the earlier conversation, system prompt and tools. This app rebuilds every request from its own transcript, so `piEngineForSpec` sets `compat.supportsMessageThreads: false` for `anthropic-messages` models. `tests/provider-neutral-agents.test.ts` asserts full requests with no `thread` field.
+- *Packaged-server trace.* pi's GitHub Copilot OAuth now imports `auth/oauth/trusted-url.js`, which `next.config.ts`'s hand-kept include list missed; `scripts/smoke-provider-runtime.mjs` caught it.
+- *Typing.* pi now types tool arguments with pi-schema's `Static<T>`; one cast in `src/server/plugin-background-tools.ts`. pi-ai no longer re-exports TypeBox's `Type`; one test imports it from `typebox`.
+- *Test pins updated to pi's new facts:*
+  - the `session-id` affinity header (pi's own Codex transport uses it too)
+  - OpenCode Go's protocol-specific endpoints and `gemini-4-argon`
+  - one new API-key provider row (Qwen Token Plan Individual CN)
+  - fake-provider usage that books session prompt tokens as cache reads/writes rather than input
+- *Verified:* full gate; `npm run build`; `smoke-provider-runtime.mjs`; `build-server.mjs` + `smoke-server.mjs --electron`; CI's Electron native tests (33/33). The last two ran inside `nix develop`, after a separate fix letting the compression probe keep nix-ld's variables.
+
 ## 5. Model pickers
 
 ### 5a. Latest per family + "Show all models"

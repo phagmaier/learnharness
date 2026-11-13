@@ -124,6 +124,16 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
 	return supported[0] ?? "off";
 }
 
+/** Fork (2026-11-12, agent-selected): pi-ai 1.5 sends Anthropic requests as
+ *  beta "message threads" by default (only new messages; the server keeps the
+ *  earlier conversation, system prompt and tools). This app rebuilds every
+ *  request from its own saved transcript, so keep full requests until threads
+ *  are adopted deliberately. See docs/fork/plans/01-small-fixes.md. */
+function withoutMessageThreads<T extends Model<Api> | undefined>(value: T): T {
+	if (value?.api !== "anthropic-messages") return value;
+	return { ...value, compat: { ...value.compat, supportsMessageThreads: false } } as T;
+}
+
 /** The production engine for a RESOLVED spec (model slots wave,
  *  2026-09-20): provider-aware catalog lookup + thinking clamp. The API
  *  key is resolved by pi-ai itself from the environment per request (the
@@ -137,7 +147,7 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 	// Custom endpoint owners authorize image attempts independently of sparse
 	// discovery metadata. Never promote the registered/catalog capabilities.
 	const permitImages = (value: Model<Api>): Model<Api> => ({ ...value, input: ["text", "image"] });
-	const model = custom && registeredModel ? permitImages(registeredModel) : registeredModel;
+	const model = withoutMessageThreads(custom && registeredModel ? permitImages(registeredModel) : registeredModel);
 	if (!model) {
 		throw new Error(`${spec.provider} catalog has no model ${spec.id}`);
 	}
