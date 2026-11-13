@@ -274,7 +274,8 @@ test("the model menu's default view, search reach, Show all toggle, and unverifi
 			model("anthropic", "claude-opus-4-8"), model("anthropic", "claude-opus-5-5"),
 		];
 		const listed = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="model-list"] button')].map((b) => b.dataset.testid!.replace("model-option-", "")).sort();
-		const menu = (key: string) => <ModelMenuList key={key} models={models} effectiveId="claude-opus-4-8" effectiveProvider="anthropic" onPick={() => {}} />;
+		const picked: string[] = [];
+		const menu = (key: string) => <ModelMenuList key={key} models={models} effectiveId="claude-opus-4-8" effectiveProvider="anthropic" onPick={(model) => picked.push(model.id)} />;
 		await f.render(menu("first"));
 		assert.deepEqual(listed(), ["claude-opus-4-8", "claude-opus-5-5", "gpt-6_1-sol", "gpt-6_1-terra"], "newest per family, plus the selected older model");
 		const modelInput = document.querySelector<HTMLInputElement>('[data-testid="model-search"]')!;
@@ -289,6 +290,21 @@ test("the model menu's default view, search reach, Show all toggle, and unverifi
 		await act(async () => { toggle.checked = true; toggle.click(); });
 		assert.equal(listed().length, models.length, "Show all lists every model");
 		assert.equal(stored.get("lh:show-all-models"), "1");
+		await key(modelInput, "ArrowUp"); // enter at the last row, hidden in the default view
+		await act(async () => { toggle.checked = false; toggle.click(); });
+		modelInput.focus();
+		await key(modelInput, "Enter");
+		assert.deepEqual(picked, ["claude-opus-4-8"], "shrinking the list resets keyboard selection: Enter chooses the first visible model");
+		await act(async () => { toggle.checked = true; toggle.click(); });
+		await key(modelInput, "ArrowUp");
+		await act(async () => { toggle.checked = false; toggle.click(); });
+		modelInput.focus();
+		await key(modelInput, "ArrowUp");
+		await key(modelInput, "Enter");
+		assert.deepEqual(picked, ["claude-opus-4-8", "gpt-6.1-terra"], "ArrowUp immediately reaches the last visible model");
+		await search("nova", modelInput);
+		await act(async () => { toggle.checked = true; toggle.click(); });
+		assert.deepEqual(listed(), ["gpt-9-nova"], "changing the toggle preserves the active search");
 		await f.render(menu("remounted"));
 		assert.equal(listed().length, models.length, "the toggle is remembered per device");
 		Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } } });

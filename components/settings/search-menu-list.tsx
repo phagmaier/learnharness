@@ -58,6 +58,10 @@ export function SearchMenuList<T>({
 		)
 		.map(({ item }) => item);
 
+	// Filtering can shrink the list without changing the search text. Reset
+	// an invalid highlight before committing the new rows or handling keys.
+	if (menuIdx !== null && menuIdx >= results.length) setMenuIdx(null);
+
 	return <>
 		<input
 			type="text"

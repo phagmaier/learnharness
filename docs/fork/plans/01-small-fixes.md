@@ -1,6 +1,6 @@
 # Plan 01: small fixes (roadmap step 1)
 
-**Status:** approved by the human 2026-11-12; open behavior choices settled the same day (marked **Decided**). Implementing on branch `small-fixes`.
+**Status:** completed; approved by the human 2026-11-12, with open behavior choices settled the same day (marked **Decided**).
 
 Designs: [fork README](../README.md) (identity and CI, model pickers, right-click menu). Work happens on one branch, with **one commit per item** in the order below, so each can be reviewed or reverted alone. Every item ends with the required gate (`typecheck`, `test`, `lint`) unless stated otherwise.
 

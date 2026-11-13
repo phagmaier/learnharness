@@ -127,6 +127,7 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 
 **Decided:**
 - *2026-11-12, human:* by default every picker shows only the newest model of each family, computed from the catalog rather than hand-maintained. A "Show all models" toggle reveals every model, including a newly named family.
+- *2026-11-12, agent-selected (review follow-up):* if filtering removes the highlighted row's index, reset keyboard navigation without clearing the search text. Enter then chooses the first visible model; ArrowUp enters at the last visible model.
 - *2026-11-12, human:* a model the ChatGPT account offers but the library doesn't know is listed under "Show all models" with a "New: limits unknown" badge. It uses conservative fallback limits and only the basic reasoning levels, and errors caused by a wrong guess say so. Real values replace the guesses once the library knows the model.
 - *2026-11-12, human:* upgrade pi-ai and pi-agent-core together from 1.4.0 to 1.5.2 as a separate, focused change: review the changelog, run the full gate and `scripts/smoke-provider-runtime.mjs`, and report behavior changes.
 - *2026-11-12, human:* the Claude Code picker shows the aliases `fable`, `opus`, `sonnet`, `haiku` by default; "Show all models" adds full model names from the library for pinning a version.
@@ -148,7 +149,7 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 
 Each item gets its own implementation plan, approved before work starts.
 
-1. *(Done 2026-11-12 on branch `small-fixes`, not yet merged; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
+1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
 2. **Fork identity and packaging:** LearnHarness Fork name and data folder, one-time data copy, updater off, personal Nix package. Done before fork-only data formats exist, so real learning data is never mixed with upstream's.
 3. **Phase 0:** on-demand HTML notes and conversation export.
 4. **Phase 1:** courses and units.
