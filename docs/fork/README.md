@@ -54,11 +54,24 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
   - **Updater UI:** the "Check for Updates…" menu item is removed. `homepage` points at the fork, so "Release notes" opens the fork's release.
   - **Versions:** upstream base plus a fork counter (`0.6.1-fork.1`). Upstream's icon is kept.
 
+### Notes and conversation export (course phase 0) — 2026-11-12 and 2026-11-13
+
+*Human*, in the step 3 interview and at the item 1 checkpoint; details in [plan 03](plans/03-notes-and-export.md):
+
+- **Model:** notes are written by a *note writer* role on the **Strong** slot.
+- **Files:** notes and exports are final when written. The server renders math (KaTeX) and Mermaid. Every file is a light, print-friendly, self-contained page in one fixed template, and embeds the app's fonts (Source Sans 3, CMU Serif titles, JetBrains Mono on pages with code).
+- **Notes page:** each Teach session has a notes page with the list on the left and the selected note on the right, plus an "Invert colors" switch remembered on the device.
+- **Interactive notes:** an "Interactive" checkbox, off by default, allows scripts in that note only.
+- **Export:** includes the plan map, side-question threads, research and PDF briefs, and demos. It is built fresh and downloaded from the notes page or the sidebar's "Export as HTML…".
+- **Deletion:** deleting a session deletes its notes; the dialog offers "Download notes" as one .zip.
+- **Regenerate:** keeps the current version until the new one succeeds.
+- **Setup wording (2026-11-13):** setup lists the Strong slot as "Prober, teacher, note writer". Settings keeps its descriptive "The main model for your sessions".
+
 ## Feature designs
 
 ### Courses, units, and notes
 
-**Status:** designed 2026-11-12; no implementation plan yet. Build order starts with phase 0 (notes and export).
+**Status:** designed 2026-11-12. Phase 0 (notes and export for standalone Teach sessions) done 2026-11-13 ([plan 03](plans/03-notes-and-export.md)); phase 1 not yet planned.
 
 **Problem (human):** everything happens in one chat. For large subjects (full-stack development, AI, linear algebra), one chat is wasteful and hard to review.
 
@@ -94,7 +107,7 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 - *2026-11-12, human:* build order: **phase 0**, on-demand HTML notes and HTML conversation export for standalone Teach sessions, which also builds the shared HTML template; then three course phases: (1) course, units, handoff, progress tracking, plus unit notes, the course Notes tab, and the completion-dialog offers; then **books** (see [Books](#books)); then (2) mastery gates with manual override; (3) competency and weak points, designed in detail once phases 1–2 produce evidence. Phase 1 must still record the evidence phase 3 will need.
 
 **Still open (settle when planning the relevant phase):**
-- Which model slot (Strong or Cheap) generates notes, handoffs, and the course plan.
+- Which model slot (Strong or Cheap) generates handoffs and the course plan. *(Notes: settled 2026-11-12, human — the Strong slot; see [plan 03](plans/03-notes-and-export.md).)*
 - Phase 2 gate design: format, pass criteria, retries, override flow.
 - Phase 3 competency model and weak-point views.
 
@@ -157,7 +170,7 @@ Each item gets its own implementation plan, approved before work starts.
 
 1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
 2. *(Done 2026-11-12; see [plan 02](plans/02-fork-identity-packaging.md), items 1–5.)* **Fork identity:** LearnHarness Fork name and data folder, one-time data copy, updater off, and a local AppImage build. These only take effect in a packaged build; dev runs are unchanged.
-3. **Phase 0:** on-demand HTML notes and conversation export.
+3. *(Done 2026-11-13; see [plan 03](plans/03-notes-and-export.md).)* **Phase 0:** on-demand HTML notes and conversation export.
 4. **Phase 1:** courses and units.
 5. **Books.**
 6. **Phase 2:** mastery gates.
@@ -172,8 +185,20 @@ Checks only the human can do, such as clicking native dialogs or menus. Remove a
 
 - *Step 1, right-click menu:* in `nix develop -c mise exec -- npm run desktop:dev`, right-click a misspelled word. Expect up to 5 suggestions, "Add to dictionary", then the editing items.
 - *Step 2, first-launch dialogs:* run the packaged build against a scratch profile (`npm run desktop:dist:linux`, then `XDG_CONFIG_HOME=<scratch>/config nix develop -c dist/linux-unpacked/learnharness-fork`, with a fake `LearnHarness` folder in the scratch config). Check the "LearnHarness is running" dialog (Retry asks again while upstream runs; once upstream quits, Retry restarts the app and copies), Quit, the "Copied…" confirmation, and the copy-failed dialog. Retry's restart inside the Hermes wrapper can only be checked in step 8.
+- *Step 3, notes and export:*
+  - In dev runs, start the server with `CHROME_PATH` set to a Chromium binary. Otherwise Mermaid diagrams show their source with a "renderer wasn't available" notice (the inherited dev-only helper issue under Open questions).
+  - Write a real note from one of your sessions on your own provider (from the session's Notes chip), then regenerate it with an instruction.
+  - Open a downloaded note and an exported conversation outside the app, in a browser, and print one.
+  - In `nix develop -c mise exec -- npm run desktop:dev`, click a web link inside a note. It should open in the system browser.
 
 ## Open questions
+
+- **Inherited dev-only issues found in step 3 (each fix needs its own decision; details in [plan 03](plans/03-notes-and-export.md#item-4-2026-11-13)):**
+  - Under `next dev`, every chat page answers 500 and then renders on the client, because React seals ref objects during server rendering and `components/chat.tsx` assigns `inputViewReader.changed`.
+  - Under `next dev`, the browser helper can't locate the dev Electron binary (Turbopack reports module paths as `/ROOT/…`). It falls back to system Chrome, which NixOS lacks unless `CHROME_PATH` is set, so demo checks fail and note diagrams show their source.
+  - A dev browser helper keeps its Chromium profile in `~/.config/LearnHarness-Fork`, because `electron/main.cjs` sets that folder before the `--browser-service` branch.
+
+  Packaged builds are unaffected by the first two.
 
 - Feature ideas beyond those above are welcome from agents; the human builds features directly in the fork and does not need local models.
 - **Desktop PATH under mise (settled 2026-11-12: the Nix wrapper adds mise's shims to PATH; see Decisions; built in roadmap step 8).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Rejected option: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.

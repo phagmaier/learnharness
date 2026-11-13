@@ -93,11 +93,17 @@ A marker in the **saved conversation** acknowledges delivery—not HTTP acceptan
 
 This is single-process coordination over JSON files, not a transactional queue or exactly-once provider execution. In-memory composer steers do not have the same durability as job delivery.
 
+### Notes and conversation exports (fork)
+
+The learner asks for a note from a Teach session's notes page. [`server/notes.ts`](../src/server/notes.ts) lists it at once as writing and runs the **note writer** ([`subagents/note-writer.ts`](../src/agent/subagents/note-writer.ts)) in the background. The writer is the `noteWriter` role (Strong slot, optional `agent.models.noteWriter` override), and its requests run with purpose `user`, so subscriptions need no background consent. It makes one `submit_note` call. The app checks the HTML body, places the session's figures, renders math (KaTeX) and Mermaid (the browser helper), and wraps everything in the fixed document template ([`core/document/`](../src/core/document/)). Problems go back to the model for up to three fixes. The finished file is self-contained and final; notes are written by temp file and rename, and a rewrite replaces the file only after it succeeds. A running writer shows in Background agents with its cost and Stop, and `notes-changed` tells open pages to refetch. Restart does not resume a writer: a note left writing reads as interrupted. Deleting a session stops its writers and removes its notes.
+
+`GET /api/chats/:id/export.html` builds a whole Teach session as one page in the same template, from the chat's own projection (`projectView`), and downloads it without storing it. Notes and exports are served as downloads or into sandboxed frames, with `Content-Security-Policy: sandbox …`, so a file never runs as the app's origin.
+
 ### Shared worker-request admission
 
 One process-global FIFO gate limits background **model request streams**, releasing each permit when the request ends, before tools or child waits—not after a whole agent finishes. Settings → Agent → Models → **Concurrent worker requests** (`agent.workerRequestConcurrency`) defaults to **8**, including when unset. Any positive safely representable whole integer is accepted without an arbitrary cap; invalid values are rejected, not clamped. A live increase drains queued requests immediately up to the limit; a decrease lets active requests finish and admits another only when the active count is below the new limit. Queued cancellation prevents provider dispatch.
 
-Core extractor/auditor/research/demo/visual/PDF requests and all detached `ctx.workers` tasks share the pool, even user-initiated tasks. Direct teacher/prober/practice requests and their compaction, interactive plugin-managed conversations and standalone raw plugin inference are excluded. `purpose` governs subscription consent, not worker classification. Routes and windows share a pool within one app-server process, never across independent server processes. Source-serial extraction chunks, the audit-through-merge consistency lock and the frontend three-file upload queue remain independent of this gate. See the [plugin host work/recovery map](plugin-architecture.md#inference-persistent-work-and-recovery).
+Core extractor/auditor/research/demo/visual/PDF/note-writer requests and all detached `ctx.workers` tasks share the pool, even user-initiated tasks. Direct teacher/prober/practice requests and their compaction, interactive plugin-managed conversations and standalone raw plugin inference are excluded. `purpose` governs subscription consent, not worker classification. Routes and windows share a pool within one app-server process, never across independent server processes. Source-serial extraction chunks, the audit-through-merge consistency lock and the frontend three-file upload queue remain independent of this gate. See the [plugin host work/recovery map](plugin-architecture.md#inference-persistent-work-and-recovery).
 
 ### Learner-image snapshots
 
@@ -149,6 +155,7 @@ Extraction is the construction writer, not the only mutation: source/session/nod
 | Data | Files |
 | --- | --- |
 | Conversations, plans, usage, image snapshots, side questions | `chats/*.json` |
+| Study notes of Teach sessions (fork) | `notes/<chatId>/notes.json` plus one final `<noteId>.html` per note |
 | Worker computation and delivery obligations | `jobs/*.json` |
 | Propositions, chains, checkpoints, coverage | `graph/{nodes,chains,sessions,coverage}.jsonl` |
 | Sources, organization, positions, render preferences | JSON maps under `graph/` |
@@ -159,7 +166,7 @@ Extraction is the construction writer, not the only mutation: source/session/nod
 
 Adapters use synchronous filesystem operations. JSONL reads skip corrupt/invalid lines; graph derivation merges repeated assertions. Some replacements use temp-file rename, but ordinary whole-file writes are not database transactions. Same-event-loop serialization is not cross-process locking or crash atomicity. Use **one server owner per data/auth profile**.
 
-Chats and graph-family files have separate version guards; absent stamps read as v1, and newer versions are refused. Positions are rebuildable and unstamped. Settings have their own version/sanitization policy. Format counters are not app versions. Golden fixtures exercise compatibility. Graph-store initialization removes retired ledgers, so importing stores is not a universally read-only inspection method.
+Chats, notes indexes, and graph-family files have separate version guards; absent stamps read as v1, and newer versions are refused. Positions are rebuildable and unstamped. Settings have their own version/sanitization policy. Format counters are not app versions. Golden fixtures exercise compatibility. Graph-store initialization removes retired ledgers, so importing stores is not a universally read-only inspection method.
 
 `/api/chats/:id/stream` is a turn/view stream. `/api/events` is a separate window-level notification stream: an ephemeral, process-local signal to fetch canonical data. [`SERVER_EVENT_TYPES`](../src/core/events.ts) is the event vocabulary. Consumers debounce and refetch on reconnect; notifications have no durable replay. A live turn's terminal controls settlement adoption so a notification fetch does not overwrite partial state. Settlement signals the end of work, not proof of a successful disk write.
 

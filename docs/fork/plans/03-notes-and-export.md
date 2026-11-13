@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–5 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Done 2026-11-13: items 1–6, checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -397,6 +397,19 @@ The user message holds the session title, the session text in a `<session>` bloc
   - Tests: 5401 pass, 1 fail, 4 skipped. The failure was the timing-sensitive `tests/atomic-write.test.ts` "folders in the way fail at once" (a 50 ms bound, run while the dev server was up); it passed 23/23 alone, twice.
   - New tests: 2 deletion cases in `tests/notes.test.ts` and a dialog case in `tests/session-context.test.tsx`.
   - Browser check: the dialog showed "This also deletes its 1 note.", "Download notes" saved a valid zip with the dialog still open, and Delete removed the session and its notes folder.
+
+### Item 6 (2026-11-13)
+
+- **Fork README:**
+  - A decision entry for this plan, including the checkpoint and the setup-wording choice.
+  - The note-model question marked settled for notes; handoffs and the course plan stay open.
+  - The feature status updated, and roadmap step 3 marked done.
+  - Step 3 pending human checks.
+  - The inherited dev-only issues listed under Open questions.
+- **`docs/architecture.md`:** the notes storage row, the notes index's version guard, a "Notes and conversation exports" background-work section, and the note writer in the shared worker pool.
+- **`docs/development.md`:** `noteWriter` added to the `LH_BACKGROUND_CAPTURE` roles.
+- **`src/agent/prompts/README.md`:** where the note writer's prompt lives (`subagents/note-writer.ts`). It is not a Settings → Prompts segment.
+- **Checks:** with the dev server stopped, typecheck passed, lint passed with the inherited warning, and tests gave 5402 pass, 0 fail, 4 skipped.
 
 ## Not in this plan
 
