@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
+import { ActivityIcon, BotIcon, FileTextIcon, NotebookPenIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
@@ -83,14 +83,29 @@ export interface FeedPluginWorker {
 	contextLimit: number | null;
 }
 
+/** A running note writer (fork plan 03): "Note · <session title>". */
+export interface FeedNoteWriter {
+	id: string;
+	chatId: string;
+	noteId: string;
+	title: string;
+	createdAt: string;
+	activity: string;
+	usage?: FeedUsage;
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
 export interface ActivityFeed {
 	jobs: FeedJob[];
 	/** Optional for older payloads and consumers; current server always sends it. */
 	pluginWorkers?: FeedPluginWorker[];
+	/** Optional like pluginWorkers; current server always sends it. */
+	noteWriters?: FeedNoteWriter[];
 	extractions: FeedExtraction[];
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], extractions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], noteWriters: [], extractions: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -127,7 +142,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], noteWriters: data.noteWriters ?? [], extractions: data.extractions ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -187,7 +202,7 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "plugin-worker" | "extraction";
+	process: "job" | "plugin-worker" | "note-writer" | "extraction";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -269,6 +284,20 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			activity: task.activity ?? task.status,
 			model: task.usage?.model ?? `${task.model.provider}:${task.model.id}`,
 			steps: task.usage?.steps,
+		});
+	}
+	for (const note of feed.noteWriters ?? []) {
+		const last = note.usage?.lastStep;
+		blobs.push({
+			id: note.id, process: "note-writer", title: note.title, chatId: note.chatId,
+			startedAt: Date.parse(note.createdAt) || 0,
+			cost: note.costUsd ?? null,
+			context: note.contextLimit !== null && last?.inputTokens !== undefined
+				? { used: last.inputTokens + (last.outputTokens ?? 0) + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0), limit: note.contextLimit }
+				: null,
+			activity: note.activity,
+			model: note.usage?.model,
+			steps: note.usage?.steps,
 		});
 	}
 	for (const run of feed.extractions) {
@@ -422,10 +451,12 @@ function ActivityBlobRow({
 	abortState: AbortState | undefined;
 	onAbort: () => void;
 }) {
-	const Icon = blob.process === "extraction" ? WaypointsIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
+	const Icon = blob.process === "extraction" ? WaypointsIcon : blob.process === "note-writer" ? NotebookPenIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
 		blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
+			: blob.process === "note-writer"
+				? "Note writer"
 			: blob.jobKind === "research"
 				? "Researcher"
 				: blob.jobKind === "demo"

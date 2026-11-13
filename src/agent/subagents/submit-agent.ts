@@ -74,8 +74,9 @@ export async function runSubmitAgent<T>(opts: {
 	/** Semantic validation at the submit seam: the value is schema-valid
 	 *  but may violate a PIPELINE law (coverage, echo-equality). Returning
 	 *  a problem string yields an isError result (invalidInputResult) →
-	 *  the model retries within maxTurns. null = accept. */
-	validate?: (value: T) => string | null;
+	 *  the model retries within maxTurns. null = accept. May be async (the
+	 *  note writer renders the submitted page to check it). */
+	validate?: (value: T) => string | null | Promise<string | null>;
 }): Promise<T> {
 	let submitted: T | undefined;
 	const result = await runSubagent(
@@ -99,7 +100,7 @@ export async function runSubmitAgent<T>(opts: {
 					) as never,
 				execute: async (_toolCallId, input) => {
 					const value = opts.fill(input);
-					const problem = opts.validate?.(value) ?? null;
+					const problem = (await opts.validate?.(value)) ?? null;
 					if (problem) return invalidInputResult(opts.toolName, [problem]);
 					submitted = value;
 					return toToolResult(submitted);

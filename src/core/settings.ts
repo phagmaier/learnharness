@@ -56,6 +56,10 @@ export const BACKGROUND_MODEL_ROLES = [
 	// (agent.models.sideQuestion). The role itself runs in the foreground,
 	// despite the list's name.
 	"sideQuestion",
+	// Notes (fork plan 03): the note writer draws from the Strong slot and,
+	// like sideQuestion, is listed for the schema-level override only
+	// (agent.models.noteWriter); Settings shows no per-role row.
+	"noteWriter",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -333,6 +337,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	visualMaker: "vision",
 	pdfReader: "vision",
 	sideQuestion: "strong", // the conversation chain, like prober/teacher (resolveSideQuestionSpec)
+	noteWriter: "strong", // fork plan 03: notes are written by the teaching tier
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

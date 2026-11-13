@@ -39,6 +39,7 @@ const { chatStore } = await import("../src/store/chats.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
+const { listNotes } = await import("../src/server/notes.ts");
 const { readRenderSettings } = await import("../src/store/render-settings.ts");
 const { getGraph, deriveView } = await import("../src/core/graph.ts");
 const { sanitizeRenderSettings } = await import("../src/core/render-settings.ts");
@@ -217,6 +218,19 @@ test("settings: the stamped record parses", () => {
 	assert.ok(s, "settings record reads");
 	assert.equal(s!.version, 1, "settings carry their version stamp");
 	assert.ok(s!.models && typeof s!.models === "object", "model slots present");
+});
+
+test("notes: the teach session's index reads through the notes service (fork plan 03)", () => {
+	const notes = listNotes(TEACH);
+	assert.equal(notes.length, 2);
+	const [ready, stopped] = notes;
+	assert.equal(ready!.status, "ready");
+	assert.ok(ready!.title.length > 0, "a written note carries its title");
+	assert.equal(ready!.usage?.steps, 1, "the latest generation's usage");
+	assert.ok(ready!.regenerating?.error, "a failed rewrite keeps the old version and its error");
+	assert.equal(stopped!.status, "failed");
+	assert.equal(stopped!.stopped, true);
+	assert.equal(stopped!.interactive, true);
 });
 
 // ── read-only: readers never write ──────────────────────────────────────────

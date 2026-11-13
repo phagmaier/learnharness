@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–2 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–3 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -308,6 +308,45 @@ The user message holds the session title, the session text in a `<session>` bloc
   - Tests: 5357 pass, 0 fail, 4 skipped, including the new `tests/conversation-export.test.tsx` and `tests/conversation-export-route.test.ts`. The plan-map test compares node and edge geometry with the chat's `PlanBlock` for the same snapshot.
   - The golden teach fixture exports with 10 questions, 2 plan maps, a figure, the demo frame (auto-sized to 1212 px in a browser), the research brief, and the failed PDF job's note.
 - **Not yet checked:** the sidebar entry in a running app is part of item 4's browser check.
+
+### Item 3 (2026-11-13)
+
+- **Decided (human), replacing a wrong fact:** only the setup dialog listed the Strong slot's roles ("Prober, teacher"). It now reads "Prober, teacher, note writer". Settings → Agent keeps its descriptive "The main model for your sessions", matching its Cheap and Vision rows.
+- **Built:**
+  - `src/store/notes.ts`, the store, at `data/notes/<chatId>/` (`PATHS.notes`).
+  - `src/agent/subagents/note-writer.ts`: the writer, with the approved prompt verbatim.
+  - `src/core/document/note-source.ts`, the session input, and `note-body.ts`, the body rules and figure insertion.
+  - `src/server/notes.ts`, the lifecycle service, and `src/server/zip.ts`, the archive writer.
+  - Routes under `app/api/chats/[id]/notes/`: list, create, view or download, regenerate, stop, delete, `archive.zip`.
+  - A "Note writer" row in Background agents, the `notes-changed` event, and a golden index fixture.
+  - The `noteWriter` role: `ROLE_SLOT` maps it to Strong, plus the schema-level override `agent.models.noteWriter`. It also appears in `/api/models` `rolePins` and in the regenerated plugin API reference (`docs/plugin-api/`).
+- **Agent-selected:**
+  - **Storage:**
+    - A stopped note is stored as `failed` with `error: "Stopped"` and an added `stopped: true`, so the page can tell it from a failure.
+    - An index that is newer or damaged is refused (HTTP 409) and never rewritten.
+  - **Lifecycle:**
+    - "Try again" on a failed or stopped note reuses the regenerate route, which rewrites the note in place.
+    - Interruptions are settled on read: a note left `writing`, or a rewrite with no running writer in this process, becomes "Interrupted when the app closed".
+  - **The writer:**
+    - The user message carries the session title, `<session>…</session>`, the plan topics, the figure list ("F1 (figure): <brief>", "I1 (image): <caption>"), and the instruction line.
+    - A session that is too long is caught before any request. The estimate is characters ÷ 4, plus a reserve for the reply.
+    - `runSubmitAgent`'s `validate` hook may now be async.
+    - `sessionMarkdown` gained an optional per-message hook; the Markdown export and the extractor are unchanged.
+  - **Body rules:**
+    - External loads are checked on `src`, `srcset`, `poster`, `data`, `background`, `action`, `formaction`, and non-link `href`, and in CSS `url(…)` and `@import`.
+    - An interactive note may also use event handlers and `javascript:` URLs, since its scripts run anyway.
+    - The title must be non-empty and at most 120 characters.
+    - A note gets up to 4 model turns: the first submission plus 3 fixes.
+  - **Interactive notes:** they carry a policy that allows their own inline scripts and blocks all network, so the prompt's "no network access" holds in any browser.
+  - **Routes:** create and regenerate answer 202. A Practice session gets 400, no Strong model gets 503 (`models_not_configured`), and stopping when nothing runs gets 409.
+  - **The archive:** it is named `<session-slug>-notes.zip`, and its files are named after the note titles, with `-2`, `-3` on clashes.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - The full suite gave 5387 pass, 1 fail, 4 skipped. The failure was the timing-sensitive `tests/atomic-write.test.ts` "folders in the way fail at once"; it passed 23/23 when rerun alone.
+  - New tests: `tests/notes.test.ts` (29) and a dock row case in `tests/render-activity-dock.test.tsx`.
+  - Updated tests: the golden fixtures, role lists, and the plugin API reference.
+  - `npm run build`, `scripts/build-server.mjs` and `scripts/smoke-server.mjs` passed. The build's two "dynamic filesystem access" warnings are inherited (same call sites in item 1's build); only their import traces now include the new routes.
+- **Not yet checked:** a real generation on a provider (item 4's end-to-end check and the human check).
 
 ## Not in this plan
 

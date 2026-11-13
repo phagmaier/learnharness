@@ -12,7 +12,7 @@ import { prepareDocumentBody } from "../src/core/document/body.ts";
 import { figureImageSrc, learnerImageSrc } from "../src/core/document/figures.ts";
 import { splitMath } from "../src/core/document/math.ts";
 import { DOCUMENT_STYLESHEET } from "../src/core/document/stylesheet.ts";
-import { INERT_PAGE_POLICY, renderDocument, type DocumentAssets } from "../src/core/document/template.ts";
+import { INERT_PAGE_POLICY, renderDocument, SCRIPTED_PAGE_POLICY, type DocumentAssets } from "../src/core/document/template.ts";
 import { LEARNER_IMAGE_HREF } from "../src/core/learner-image-svg.ts";
 import { documentAssets, inlineKatexFonts } from "../src/agent/document/assets.ts";
 import { renderDocumentFile } from "../src/agent/document/render.ts";
@@ -90,9 +90,12 @@ describe("document template", () => {
 		assert.equal(document.querySelector('meta[name="color-scheme"]')?.getAttribute("content"), "light");
 	});
 
-	it("drops the inert policy only for pages that carry scripts or frames", () => {
+	it("lets an interactive note run its own scripts offline, and drops the policy only for framed exports", () => {
 		const scripted = renderDocument({ title: "T", body: "<script>1</script>", scripted: true }, ASSETS);
-		assert.ok(!scripted.includes("Content-Security-Policy"));
+		assert.ok(scripted.includes(`content="${SCRIPTED_PAGE_POLICY}"`));
+		assert.match(SCRIPTED_PAGE_POLICY, /default-src 'none'/);
+		assert.match(SCRIPTED_PAGE_POLICY, /script-src 'unsafe-inline'/);
+		assert.ok(!/connect-src|https?:/.test(SCRIPTED_PAGE_POLICY));
 		const framed = renderDocument({ title: "T", body: '<iframe sandbox="allow-scripts" srcdoc="x"></iframe>' }, ASSETS);
 		assert.ok(!framed.includes("Content-Security-Policy"));
 		const withApp = renderDocument({ title: "T", body: "<p>x</p>", appScript: "window.x=1" }, ASSETS);

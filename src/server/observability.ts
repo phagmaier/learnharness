@@ -26,6 +26,7 @@ import { catalogContextLimits } from "./model-catalog.ts";
 import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import { pluginWorkerActivities, type PluginWorkerActivity } from "./plugin-worker-activity.ts";
+import { noteWriterActivities, type NoteWriterActivity } from "./notes.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
@@ -40,6 +41,12 @@ export { chatStore } from "../store/chats.ts";
 export interface ActivityJob extends JobRecord {
 	costUsd: number | null;
 	title: string;
+	contextLimit: number | null;
+}
+
+/** A running note writer (fork plan 03), with its live cost. */
+export interface ActivityNoteWriter extends NoteWriterActivity {
+	costUsd: number | null;
 	contextLimit: number | null;
 }
 
@@ -76,6 +83,7 @@ export interface ActivityExtraction {
 export function activityFeed(): {
 	jobs: ActivityJob[];
 	pluginWorkers: ActivityPluginWorker[];
+	noteWriters: ActivityNoteWriter[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
 } {
@@ -117,11 +125,16 @@ export function activityFeed(): {
 		.map(task => ({ ...task, costUsd: jobCost(task),
 			contextLimit: task.usage ? (limits.get(task.usage.model) ?? null) : null }))
 		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	const noteWriters: ActivityNoteWriter[] = noteWriterActivities()
+		.map((note) => ({ ...note, costUsd: jobCost(note),
+			contextLimit: note.usage ? (limits.get(note.usage.model) ?? null) : null }))
+		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
 		jobs,
 		pluginWorkers,
+		noteWriters,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		graphRevision: graphRevision(),
 	};

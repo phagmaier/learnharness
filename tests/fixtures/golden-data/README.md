@@ -30,6 +30,12 @@ core tool surface must appear in real data here.
 - `jobs/` — five records covering kind × status: research done + aborted by
   learner, demo done, visual done, pdf error.
 - `settings.json` — the stamped settings record (version 1, model slots).
+- `notes/chat_mv27rrra_feff23b6/notes.json` — the fork's notes index (plan
+  03, version 1) for the teach master: a ready note whose rewrite failed
+  (old version kept, error recorded) and a stopped interactive note. Written
+  by the real notes service and store against a scratch copy of this
+  directory, with a scripted (faux) model in place of a provider; the note
+  HTML files are omitted to keep the fixture small.
 
 ## Regenerating / extending
 

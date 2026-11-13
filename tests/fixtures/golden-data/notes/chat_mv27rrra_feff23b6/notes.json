@@ -1,0 +1,57 @@
+{
+	"version": 1,
+	"notes": [
+		{
+			"id": "note_mwes3rsr_6b6294fc",
+			"title": "The BKT update rule",
+			"instruction": "I struggle with the predict step",
+			"interactive": false,
+			"status": "ready",
+			"createdAt": "2026-11-13T09:32:56.571Z",
+			"updatedAt": "2026-11-13T09:32:56.700Z",
+			"model": "faux:faux-1",
+			"usage": {
+				"model": "faux:faux-1",
+				"inputTokens": 0,
+				"outputTokens": 28,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 8690,
+				"cacheWrite1hTokens": 0,
+				"steps": 1,
+				"calls": [
+					{
+						"inputTokens": 0,
+						"outputTokens": 28,
+						"cacheReadTokens": 0,
+						"cacheWriteTokens": 8690,
+						"cacheWrite1hTokens": 0
+					}
+				],
+				"lastStep": {
+					"inputTokens": 0,
+					"outputTokens": 28,
+					"cacheReadTokens": 0,
+					"cacheWriteTokens": 8690,
+					"cacheWrite1hTokens": 0
+				}
+			},
+			"regenerating": {
+				"instruction": "Only the transition step",
+				"interactive": false,
+				"startedAt": "2026-11-13T09:32:56.827Z",
+				"error": "The note writer stopped without producing a note it could save."
+			}
+		},
+		{
+			"id": "note_mwes3rwz_3d3c9aea",
+			"title": "",
+			"instruction": "",
+			"interactive": true,
+			"status": "failed",
+			"createdAt": "2026-11-13T09:32:56.723Z",
+			"updatedAt": "2026-11-13T09:32:56.798Z",
+			"error": "Stopped",
+			"stopped": true
+		}
+	]
+}

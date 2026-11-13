@@ -225,13 +225,21 @@ export function messageMarkdown(
  */
 export function sessionMarkdown(
 	messages: ReadonlyArray<LhMessage>,
-	opts: { title?: string; anchors?: boolean } = {},
+	opts: {
+		title?: string;
+		anchors?: boolean;
+		/** Per-message override (the note writer's figure placeholders and
+		 *  side threads): receives the engine's block (null when it renders
+		 *  nothing) and returns the block to use. Absent = the engine's own. */
+		render?: (message: LhMessage, block: string | null) => string | null;
+	} = {},
 ): string {
 	const blocks: string[] = [];
 	if (opts.title !== undefined && opts.title.length > 0) blocks.push(`# ${opts.title}`);
 	const ctx = markdownContext(messages);
 	for (const message of messages) {
-		const block = messageMarkdown(message, (message as { id?: string }).id ?? "", opts.anchors ?? true, ctx);
+		const own = messageMarkdown(message, (message as { id?: string }).id ?? "", opts.anchors ?? true, ctx);
+		const block = opts.render ? opts.render(message, own) : own;
 		if (block !== null) blocks.push(block);
 	}
 	return blocks.join("\n\n");

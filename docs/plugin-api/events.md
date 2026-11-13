@@ -62,6 +62,9 @@ export interface ServerEvents {
     "side-chats-changed": {
         chatId: string;
     };
+    "notes-changed": {
+        chatId: string;
+    };
     "plugins-changed": Record<string, never>;
     "plugin-message": {
         pluginId: string;
@@ -90,6 +93,8 @@ export interface ServerEvents {
 - ["compaction-changed".running](#serverevents-compaction-changedrunning)
 - ["side-chats-changed"](#serverevents-side-chats-changed)
 - ["side-chats-changed".chatId](#serverevents-side-chats-changedchatid)
+- ["notes-changed"](#serverevents-notes-changed)
+- ["notes-changed".chatId](#serverevents-notes-changedchatid)
 - ["plugins-changed"](#serverevents-plugins-changed)
 - ["plugin-message"](#serverevents-plugin-message)
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
@@ -234,6 +239,24 @@ GET /api/chats/:id/side-chats. Closing never deletes it.
 ```
 
 ### ServerEvents "side-chats-changed".chatId
+
+```ts
+chatId: string;
+```
+
+### ServerEvents "notes-changed"
+
+A session's notes changed (created, progress settled, regenerated,
+stopped, deleted). Notify-then-fetch: open notes pages refetch
+GET /api/chats/:id/notes (fork plan 03).
+
+```ts
+"notes-changed": {
+    chatId: string;
+};
+```
+
+### ServerEvents "notes-changed".chatId
 
 ```ts
 chatId: string;

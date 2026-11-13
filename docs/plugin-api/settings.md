@@ -21,7 +21,8 @@ declare const BACKGROUND_MODEL_ROLES: readonly [
     "visualMaker",
     "extractor",
     "auditor",
-    "sideQuestion"
+    "sideQuestion",
+    "noteWriter"
 ];
 ```
 

@@ -73,6 +73,27 @@ describe("activity dock pure layer", () => {
 		assert.match(html, /data-testid="activity-abort"/);
 	});
 
+	it("note writers (fork plan 03) show as \"Note · <session title>\" with live cost, context and a stop control", () => {
+		const feed: ActivityFeed = { jobs: [], extractions: [], noteWriters: [{
+			id: "chat_a:note_1", chatId: "chat_a", noteId: "note_1", title: "Note · Spectral theorem",
+			createdAt: new Date(NOW - 20_000).toISOString(), activity: "Writing", costUsd: 0.02, contextLimit: 200_000,
+			usage: { model: "test:strong", inputTokens: 9000, outputTokens: 700, cacheReadTokens: undefined,
+				cacheWriteTokens: undefined, reasoningTokens: undefined, steps: 2,
+				lastStep: { inputTokens: 5000, outputTokens: 400, cacheReadTokens: undefined, cacheWriteTokens: undefined, reasoningTokens: undefined } },
+		}] };
+		const blob = toBlobs(feed)[0]!;
+		assert.equal(blob.process, "note-writer");
+		assert.equal(blob.chatId, "chat_a");
+		assert.equal(blob.cost, 0.02);
+		assert.deepEqual(blob.context, { used: 5400, limit: 200_000 });
+		const html = renderToStaticMarkup(<ActivitySection feed={feed} />);
+		assert.match(html, /data-testid="activity-blob-note-writer"/);
+		assert.match(html, /data-activity-id="chat_a:note_1"/);
+		assert.match(html, /Note · Spectral theorem/);
+		assert.match(html, /Writing/);
+		assert.match(html, /data-testid="activity-abort"/);
+	});
+
 	it("per-chunk jobs (owner, 2026-09-28): one source, N rows — unique ids (React keys), one chatId, part-suffixed titles", () => {
 		const rows = [
 			{ id: "src_a#1", chatId: "src_a", part: { i: 1, n: 2 }, title: "notes.md · 1/2", phase: "extracting", startedAt: NOW - 1000 },

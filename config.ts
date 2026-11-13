@@ -32,6 +32,9 @@ export const PATHS = {
 	/** Debug artifacts (env-gated): data/debug/provider-events/<chatId>.jsonl
 	 * raw provider stream recordings (src/agent/provider-events.ts). */
 	debug: path.join(/* turbopackIgnore: true */ DATA_ROOT, "debug"),
+	/** Study notes of standalone sessions (fork plan 03):
+	 * notes/<chatId>/notes.json plus one <noteId>.html per note. */
+	notes: path.join(/* turbopackIgnore: true */ DATA_ROOT, "notes"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────
@@ -56,7 +59,9 @@ export type ModelRole =
 	| "pdfReader"
 	| "extractor"
 	| "auditor"
-	| "sideQuestion";
+	| "sideQuestion"
+	// Fork plan 03: writes on-demand study notes from a session (Strong slot).
+	| "noteWriter";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction
