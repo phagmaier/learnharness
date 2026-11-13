@@ -55,7 +55,23 @@ The system-installed upstream LearnHarness (a Nix FHS wrapper of upstream's rele
 
 Each installed app picks a free port, so it does not collide with dev's port 3000. Shared between them: API keys from environment variables (which override saved keys) and the Claude Code CLI's own profile. Both can run at once.
 
+## Packaging the fork
+
+The installed fork is an AppImage built here, published as a GitHub release on the fork, and wrapped in Hermes (`home/phagmaier/learnharness-fork.nix`) with `appimageTools.wrapType2`, like upstream's. Decisions: [README](README.md#fork-identity-packaging-and-ci--2026-11-12); plan: [plan 02](plans/02-fork-identity-packaging.md).
+
+**Versions.** `package.json` `version` stays upstream's numeric base (plugin manifests are checked against it); `forkRelease` counts fork releases on that base. `node scripts/fork-version.mjs` prints the shown version, e.g. `0.6.1-fork.1`. Bump `forkRelease` for each release; reset it to 1 after merging a new upstream version.
+
+**Release steps:**
+
+1. Bump `forkRelease`, commit, and run the required gate.
+2. Build: `nix develop -c mise exec -- npm run desktop:dist:linux`. It clears `dist/` and `.next/standalone`, builds, runs the provider and server smokes (the server smoke under Electron, hence `nix develop`), and writes `dist/LearnHarness-Fork-<version>-x86_64.AppImage`.
+3. Publish (outward-facing): `gh release create v<version> dist/LearnHarness-Fork-<version>-x86_64.AppImage --repo phagmaier/learnharness --title "LearnHarness Fork <version>" --notes "<changes>"`.
+4. In Hermes, set `version` and `hash` in `home/phagmaier/learnharness-fork.nix` (`nix store prefetch-file --hash-type sha256 <release URL>` prints the hash), then follow Hermes's verify-and-activate steps.
+
+The wrapper appends mise's shims folder to `PATH`, so the app and the Claude CLI find mise-installed tools as a terminal does. The updater is off; a new version only arrives through these steps.
+
+To try a build without installing it, run the unpacked app against a scratch profile so neither real folder is touched: `XDG_CONFIG_HOME=<scratch>/config nix develop -c dist/linux-unpacked/learnharness-fork`.
+
 ## Not set up
 
 - **Chrome/Chromium.** Demo verification falls back to `CHROME_PATH` when Electron's browser helper is unavailable. None is installed; the test suite passes without it.
-- **Linux packaging.** `npm run desktop:dist` is upstream's signed macOS release path. See [desktop-release.md](../desktop-release.md) for other platforms.

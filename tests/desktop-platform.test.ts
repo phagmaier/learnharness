@@ -278,9 +278,8 @@ describe("desktop packaging policy", () => {
 		assert.deepEqual(config.win.target, [{ target: "nsis", arch: ["x64"] }]);
 		assert.equal(config.win.signExecutable, false);
 		assert.equal(config.win.verifyUpdateCodeSignature, false);
-		assert.deepEqual(config.linux.target, [
-			{ target: "AppImage", arch: ["x64"] }, { target: "deb", arch: ["x64"] },
-		]);
+		// Fork: AppImage only (wrapped by the personal Nix package).
+		assert.deepEqual(config.linux.target, [{ target: "AppImage", arch: ["x64"] }]);
 		assert.equal(config.linux.syncDesktopName, true);
 		// Fork: no update feed is baked in (the updater is off).
 		assert.equal(config.publish, null);

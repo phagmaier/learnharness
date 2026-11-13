@@ -170,11 +170,9 @@ nsis:
 linux:
   icon: build/icon.png
   executableName: learnharness-fork
+  # Fork: AppImage only, wrapped by the personal Nix package (docs/fork/nixos.md).
   target:
     - target: AppImage
-      arch:
-        - x64
-    - target: deb
       arch:
         - x64
   artifactName: "LearnHarness-Fork-${version}-${arch}.${ext}"
