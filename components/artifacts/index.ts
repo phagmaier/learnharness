@@ -5,6 +5,7 @@ import { JobCard, PdfJobCard } from "@/components/artifacts/job-card";
 import { VisualCard } from "@/components/artifacts/visual-card";
 import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
+import { CourseProposalCard } from "@/components/artifacts/course-proposal-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
 import { ProblemCard, ConcludeCard } from "@/components/practice-cards";
 
@@ -34,6 +35,8 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// The probe conclusion: the assessment belongs to the learner as much as
 	// to the transcript (docs/archive/probe-teach-split.md §2). Plain v1 card.
 	probe_done: ProbeDoneCard,
+	// Fork plan 04: the setup session's editable course proposal.
+	propose_course: CourseProposalCard,
 	// The learner-filesystem set (sources v1): one quiet expandable
 	// tool-call card each — collapsed one-liner (tool name + headline
 	// argument), full input/output on expand.

@@ -47,6 +47,7 @@ import {
 	THINKING_LABEL,
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
+import { unitStartText } from "./contracts/course.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
 import { parseQuestionInput } from "./tool-parts.ts";
 import { expandCitationsForModel } from "./citations.ts";
@@ -84,7 +85,10 @@ export interface LhMarkerMessage {
 		| "problem-dismissed"
 		| "compaction"
 		| "side-question"
-		| "side-question-told";
+		| "side-question-told"
+		// Fork plan 04: the learner started a course unit (message 0 of a
+		// unit session). Learner input; the session continues from it.
+		| "unit-start";
 	/** The model-facing text ("" for plan blocks — UI-only). */
 	content: string;
 	display: boolean;
@@ -382,6 +386,34 @@ export function newNextMessage(): LhMarkerMessage {
 		content: NEXT_PROBLEM_TEXT,
 		display: true,
 		details: {},
+		timestamp: Date.now(),
+	};
+}
+
+/** The unit-start marker's UI payload (fork plan 04). Declared here, not
+ *  beside the course contracts: importing that type into this module
+ *  pushes the plugin view context's deep readonly mapping over
+ *  TypeScript's instantiation limit. */
+export interface UnitStartDetails {
+	courseId: string;
+	unitId: string;
+	/** The unit's position when it started. */
+	number: number;
+	title: string;
+}
+
+/** The unit-start marker (fork plan 04): message 0 of a course unit's
+ *  session. The learner clicked Start, so it is learner input; the chat
+ *  page continues from it at once and the prober opens the unit's probe.
+ *  The transcript renders a quiet line off the details, never the content. */
+export function newUnitStartMessage(details: UnitStartDetails): LhMarkerMessage {
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "unit-start",
+		content: unitStartText(details.number, details.title),
+		display: true,
+		details,
 		timestamp: Date.now(),
 	};
 }
@@ -987,7 +1019,7 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 	if (message.role === "system" || message.role === "assistant") return "neutral";
 	if (message.role === "custom") {
 		if (["probe-handoff", "subagent-steer", "subagent-abort"].includes(message.customType)) return "automatic";
-		if (["practice-thinking", "plugin-problem-submission", "practice-next"].includes(message.customType)) return "learner";
+		if (["practice-thinking", "plugin-problem-submission", "practice-next", "unit-start"].includes(message.customType)) return "learner";
 		return ["graph-context", "plan-block", "problem-dismissed", "compaction", "side-question", "side-question-told"].includes(message.customType) ? "neutral" : "unrecognizable";
 	}
 	if (message.role === "toolResult") {
@@ -1041,6 +1073,9 @@ export function needsContinuation(record: readonly LhMessage[]): boolean {
 	const messages = tailIgnoringSideQuestions(record);
 	if (pluginQuestionCallsOf(messages).some(call => call.status === "answerable" || call.status === "unreadable")) return false;
 	const last = messages[messages.length - 1];
+	// A unit session opens on its unit-start marker: the prober owes the
+	// first reply (fork plan 04).
+	if (last && (last as LhMarkerMessage).role === "custom" && (last as LhMarkerMessage).customType === "unit-start") return true;
 	if (!last || (last as { role?: string }).role !== "toolResult") return false;
 	// The trailing results batch (contiguous by construction — the agent
 	// appends its batch; the question gate keeps a quiz call and its

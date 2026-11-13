@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { PATHS } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import type { ChatStore } from "../core/ports.ts";
-import type { ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
+import type { ChatCourseLink, ChatRecord, ChatSettings, ChatSummary, ExtractionRunUsage, ImageSnapshot, PlanTree, SideChatThread, TurnUsage } from "../core/contracts.ts";
 import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
@@ -34,7 +34,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice"): ChatRecord {
+function createChat(title: string, kind?: "practice", course?: ChatCourseLink): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
@@ -45,6 +45,8 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
 		// Practice sessions carry the marker; teach stays ABSENT (absence
 		// reads as teach — pre-practice records never migrate).
 		...(kind === "practice" ? { kind: "practice" as const } : {}),
+		// Fork plan 04: a course session carries its back-pointer from birth.
+		...(course ? { course } : {}),
 	};
 	fs.mkdirSync(PATHS.chats, { recursive: true });
 	writeChat(record);
@@ -228,6 +230,16 @@ function saveTree(id: string, tree: PlanTree): void {
 	writeChat(record);
 }
 
+/** Point a session at its course (fork plan 04): the setup session gains
+ *  its course id when the course is created. Silent and not conversation
+ *  activity, like saveSettings; the course store announces the change. */
+function setCourseLink(id: string, course: ChatCourseLink): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	record.course = course;
+	writeChat(record);
+}
+
 /** Side-question threads (2026-11-02): one synchronous read-modify-write,
  *  so a concurrent turn's saveMessages (which re-reads the record) never
  *  loses a thread and a thread write never loses messages. Null when the
@@ -256,4 +268,5 @@ export const chatStore: ChatStore = {
 	appendTurnUsage,
 	appendExtractionUsage,
 	updateSideChats,
+	setCourseLink,
 };

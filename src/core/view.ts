@@ -488,6 +488,16 @@ function projectMarker(marker: LhMarkerMessage, out: LhViewMessage[]): void {
 			});
 			return;
 		}
+		case "unit-start": {
+			// A course unit began (fork plan 04): a quiet centered line
+			// ("Unit 2 started"), rendered from the details, never a bubble.
+			out.push({
+				id: marker.id,
+				role: "user",
+				parts: [{ type: "data-unit-start", id: `us_${marker.id}`, data: marker.details }],
+			});
+			return;
+		}
 		case "side-question":
 		case "side-question-told":
 			// Raw context entries do not split the teaching segment or render

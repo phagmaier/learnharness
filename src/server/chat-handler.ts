@@ -2,8 +2,10 @@ import type { Usage } from "@earendil-works/pi-ai";
 import {
 	createPracticeAgent,
 	createProberAgent,
+	createSetupAgent,
 	createTeacherAgent,
 	type AgentBuildOptions,
+	type AgentKind,
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
@@ -14,6 +16,8 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
+import { courseInputRefusal } from "./courses.ts";
+import { sessionExtracts } from "../core/course.ts";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -183,7 +187,7 @@ setFileAccessPolicy(fileAccessPolicy);
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
 	req: Request,
-	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean; agentKind?: AgentKind }) => TeachingAgent,
 	sideContext: Pick<SideChatService, "snapshot"> = sideChats,
 ): Promise<Response> {
 	let body: { chatId?: unknown; input?: unknown };
@@ -214,7 +218,7 @@ export async function handleChatRequest(
 export async function handleChatInput(
 	chatId: string,
 	input: TurnInput,
-	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean }) => TeachingAgent,
+	buildAgent?: (opts: AgentBuildOptions & { teaching: boolean; agentKind?: AgentKind }) => TeachingAgent,
 	sideContext: Pick<SideChatService, "snapshot"> = sideChats,
 ): Promise<Response> {
 	await reconcilePluginQuestionCompatibility(stores.chatStore, chatId);
@@ -223,6 +227,10 @@ export async function handleChatInput(
 		return Response.json({ error: "Unknown chat" }, { status: 404 });
 	}
 	let record = initialRecord;
+	// Fork plan 04: a closed course session (a setup whose course exists)
+	// takes no new main input. Refused before any effect.
+	const closed = courseInputRefusal(record, input.type);
+	if (closed) return Response.json({ error: closed.error }, { status: closed.status });
 
 	const capturedSession = { createdAt: record.createdAt, kind: record.kind };
 	const freshSubmission = input.type === "text" || input.type === "thinking" || input.type === "answer" || input.type === "plugin-question-answer" || input.type === "plugin-problem-submission";
@@ -731,8 +739,23 @@ export async function handleChatInput(
 	// split, no plan/question/job tools; the whole registry is
 	// problem + conclude. buildAgent stays honored (the test seam is
 	// uniform across kinds).
+	// Which agent this turn runs (the test seam receives it too).
+	const agentKind: AgentKind = record.course?.role === "setup" ? "setup" : record.kind === "practice" ? "practice" : teaching ? "teacher" : "prober";
 	const constructed: TeachingAgent = buildAgent
-		? buildAgent({ ...agentOpts, teaching })
+		? buildAgent({ ...agentOpts, teaching, agentKind })
+		: record.course?.role === "setup"
+			// Fork plan 04: the course setup agent, from turn 1 to creation.
+			? createSetupAgent(
+					{
+						chatId,
+						chatStore: stores.chatStore,
+						jobStore: stores.jobStore,
+						spawn: (job, input) => void jobRunner.runJob(job.id, input),
+						searchAvailable,
+						...(graphToolsEnabled(effective) ? { graphStore: stores.graphStore } : {}),
+					},
+					agentOpts,
+				)
 		: record.kind === "practice"
 			? createPracticeAgent(
 					{
@@ -884,7 +907,9 @@ export async function handleChatInput(
 				// PRACTICE (owner, 2026-10-04): practice sessions write nothing —
 				// no extraction, no graph, no coverage (v1: the session itself
 				// is the deliverable).
-				if ((!requestCycle || requestCycle.dispatched) && record.kind !== "practice" && extractionEnabled(effective.graph)) {
+				// Fork plan 04: a course setup session's broad probe is never
+				// extracted either (sessionExtracts).
+				if ((!requestCycle || requestCycle.dispatched) && sessionExtracts(record) && extractionEnabled(effective.graph)) {
 					// Fresh per-turn read of the graph section's chunk budget
 					// (extraction-UX redesign, 2026-09-24): the trigger compares
 					// against it and the pipeline's batches share it.

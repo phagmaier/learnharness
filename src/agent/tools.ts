@@ -18,6 +18,7 @@ import type { JobStore } from "../core/ports.ts";
 import { jobTools, type DemoInput, type PdfInput, type ResearchInput, type VisualInput } from "./tools/jobs.ts";
 import { planTools, type PlanToolContext } from "./tools/plan.ts";
 import { probeDoneTool, type ProbeDoneContext } from "./tools/probe.ts";
+import { proposeCourseTool } from "./tools/course.ts";
 import { proberGraphTools } from "./tools/graph.ts";
 import { readTool } from "./tools/read.ts";
 import { lsTool } from "./tools/ls.ts";
@@ -291,7 +292,25 @@ export function createProberTools(
 ): Record<string, AgentTool<any>> {
 	// probe_done is re-added AFTER the filter, always-on by construction — it
 	// is how the phase ENDS; a prober that can never conclude is a lockout.
-	const done = probeDoneTool(ctx);
+	return proberToolRecord(ctx, probeDoneTool(ctx), enabled);
+}
+
+/** The course setup agent's tool set (fork plan 04): the prober's quizzing,
+ *  ask, file, research/PDF and gated graph tools, with propose_course in
+ *  place of probe_done — the setup session never plans or teaches. */
+export function createSetupTools(
+	ctx: Omit<ProberToolContext, "deliver">,
+	enabled?: EnabledTools,
+): Record<string, AgentTool<any>> {
+	return proberToolRecord(ctx, { propose_course: proposeCourseTool() }, enabled);
+}
+
+/** The probing registry around its always-on seam tool. */
+function proberToolRecord(
+	ctx: Omit<ProberToolContext, "deliver">,
+	done: Record<string, AgentTool<any>>,
+	enabled?: EnabledTools,
+): Record<string, AgentTool<any>> {
 	// The job tools build over the SAME context/gates as the teacher's
 	// (one builder, one gating semantic); the prober carries a SUBSET:
 	const jobs = jobTools({

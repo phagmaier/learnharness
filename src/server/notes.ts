@@ -26,6 +26,7 @@ import { zipFiles } from "./zip.ts";
 export { NotesUnreadableError } from "../store/notes.ts";
 
 export const INTERRUPTED_MESSAGE = "Interrupted when the app closed";
+export const SETUP_NO_NOTES = "Course setup sessions have no notes.";
 export const STOPPED_MESSAGE = "Stopped";
 
 /** Test seams: engine construction and the writer itself. */
@@ -106,6 +107,8 @@ function teachSession(chatId: string): ChatRecord | NoteRefusal {
 	const record = stores.chatStore.getChat(chatId);
 	if (!record) return { ok: false, status: 404, error: "Unknown chat" };
 	if (record.kind === "practice") return { ok: false, status: 400, error: "Practice sessions have no notes." };
+	// Fork plan 04: a course setup session plans the course; it has no notes.
+	if (record.course?.role === "setup") return { ok: false, status: 400, error: SETUP_NO_NOTES };
 	return record;
 }
 

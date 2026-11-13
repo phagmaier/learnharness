@@ -13,6 +13,7 @@ import type { LhMessage } from "./native-messages.ts";
 import type { PluginAgentRecord } from "./plugin-agents.ts";
 import type { PluginTaskRecord } from "./plugin-workers.ts";
 import type {
+	ChatCourseLink,
 	ChatRecord,
 	ImageSnapshot,
 	ChatSettings,
@@ -56,7 +57,7 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice"): ChatRecord;
+	createChat(title: string, kind?: "practice", course?: ChatCourseLink): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
@@ -95,6 +96,9 @@ export interface ChatStore {
 	 *  side-chat service announces its own changes. Not conversation
 	 *  activity — updatedAt stays put. */
 	updateSideChats(id: string, update: (threads: SideChatThread[]) => SideChatThread[]): SideChatThread[] | null;
+	/** Set the session's course back-pointer (fork plan 04). Silent and not
+	 *  conversation activity: updatedAt stays put. */
+	setCourseLink(id: string, course: ChatCourseLink): void;
 }
 
 // ─── GraphStore — the append-only evidence ledgers (data/graph) ──────────────

@@ -9,7 +9,8 @@ export default async function SessionNotesPage({ params }: { params: Promise<{ i
 	const { id } = await params;
 	const chat = getChat(id);
 	if (!chat) notFound();
-	if (chat.kind === "practice") redirect(`/chat/${encodeURIComponent(id)}`);
+	// Practice and course setup sessions have no notes (fork plans 03, 04).
+	if (chat.kind === "practice" || chat.course?.role === "setup") redirect(`/chat/${encodeURIComponent(id)}`);
 	let notes: ReturnType<typeof listNotesWithCost> = [];
 	let error: string | null = null;
 	try {

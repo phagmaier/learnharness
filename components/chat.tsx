@@ -70,6 +70,9 @@ import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/comp
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
+import { latestProposalCallId, type SessionCourseView } from "@/src/core";
+import { CourseSetupContext } from "@/components/artifacts/course-proposal-card";
+import { CourseClosedBand } from "@/components/course-session";
 import { QuestionDock } from "@/components/question-dock";
 import { PluginQuestionDock } from "./plugin-question-dock";
 import { PluginQuestionPart } from "./plugin-question-part";
@@ -272,7 +275,10 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	course,
 }: {
+	/** Fork plan 04: the session's place in a course, as the page read it. */
+	course?: SessionCourseView;
 	chatId: string;
 	title: string;
 	initialMessages: LhMessage[];
@@ -309,6 +315,9 @@ export function Chat({
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
 	const { canonicalMessages, reconciliation, reconcile, pluginQuestionAvailability, pluginQuestionDraft, pluginProblemAvailability, pluginProblemDraft, dismissPluginQuestion, readRecord, messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, status, evaluating, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
+
+	// Fork plan 04: a setup session whose course exists takes no new input.
+	const closedCourse = course?.role === "setup" && course.courseId ? course : null;
 
 	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -547,7 +556,7 @@ export function Chat({
 	useEffect(() => {
 		if (mountContinuation.current) return;
 		mountContinuation.current = true;
-		if (!turnInFlight) continueIfOwed(initialMessages);
+		if (!turnInFlight && !closedCourse) continueIfOwed(initialMessages);
 		// mount-only by design (turnInFlight read at initial value)
 	}, []);
 
@@ -584,6 +593,13 @@ export function Chat({
 	const localStream = status === "submitted" || status === "streaming";
 	const busy = localStream || turnInFlight || reconciliation !== "ready";
 	const busyRef = useRef(busy);
+	// Fork plan 04: the setup card's session facts, and the band that
+	// replaces the composer once a course session is closed.
+	const latestProposal = course?.role === "setup" ? latestProposalCallId(nativeMessages) ?? null : null;
+	const courseRouter = useRouter();
+	const courseSetup = useMemo(() => course?.role === "setup"
+		? { chatId, latestCallId: latestProposal, courseId: course.courseId, busy, navigate: (href: string) => courseRouter.push(href) }
+		: null, [course, chatId, latestProposal, busy, courseRouter]);
 	busyRef.current = busy;
 	// The attach handoff (stream-reattach wave): the moment a resumed
 	// stream takes over the rendering — the SDK left "ready", so
@@ -1602,6 +1618,7 @@ export function Chat({
 				openSetup: () => setSetupOpen(true),
 			}}
 		>
+		<CourseSetupContext.Provider value={courseSetup}>
 		<SessionMermaidContext.Provider
 			value={{
 				openMermaid: setMermaidFocus,
@@ -1717,7 +1734,7 @@ export function Chat({
 </Hint>
 					)}
 					{/* Notes (fork plan 03): the session's notes page, at any phase. */}
-					{kind !== "practice" && <SessionNotesChip chatId={chatId} />}
+					{kind !== "practice" && course?.role !== "setup" && <SessionNotesChip chatId={chatId} />}
 					{/* The extraction ring (owner-locked redesign, 2026-09-24): fills
 					    with uncovered vs the chunk threshold, pulses while a run is in
 					    flight, vanishes when the graph is off. Click → the exact
@@ -1725,7 +1742,7 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{kind !== "practice" && course?.role !== "setup" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
 					{kind === "practice" ? (
@@ -2105,7 +2122,7 @@ export function Chat({
 							)
 						)
 					}
-					composer={
+					composer={closedCourse ? <CourseClosedBand view={closedCourse} /> : (
 						<ChatSessionComposer
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
 							// square renders while a reattached/wake turn runs too — the
@@ -2129,7 +2146,7 @@ export function Chat({
 							onNext={sendNext}
 							placeholder={nextReady ? "Ask anything, or press Enter for the next one." : undefined}
 						/>
-					}
+					)}
 					onSubmitAnswer={(output) => {
 						if (!pending) return;
 						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
@@ -2242,6 +2259,7 @@ export function Chat({
 				// the learner sends it themselves.
 			}}
 		/>
+		</CourseSetupContext.Provider>
 		</ChatActionsContext.Provider>
 	);
 }

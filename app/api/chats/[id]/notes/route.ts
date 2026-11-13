@@ -8,16 +8,17 @@
  *        at once as writing and written in the background. Progress
  *        arrives as notes-changed events.
  *
- * 404 unknown chat; 400 a Practice session; 409 an index this build can't
+ * 404 unknown chat; 400 a Practice or course setup session; 409 an index this build can't
  * read; 503 no Strong model configured.
  */
-import { createNote, getChat, isNotesUnreadable, listNotesWithCost } from "@/src/server";
+import { createNote, getChat, isNotesUnreadable, listNotesWithCost, SETUP_NO_NOTES } from "@/src/server";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
 	const record = getChat(id);
 	if (!record) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	if (record.kind === "practice") return Response.json({ error: "Practice sessions have no notes." }, { status: 400 });
+	if (record.course?.role === "setup") return Response.json({ error: SETUP_NO_NOTES }, { status: 400 });
 	try {
 		return Response.json({ notes: listNotesWithCost(id) });
 	} catch (error) {

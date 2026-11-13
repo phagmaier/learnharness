@@ -24,6 +24,19 @@ import { sideChats } from "./side-chat.ts";
  */
 
 export const { createChat, getChat, listChats } = stores.chatStore;
+
+/** PER-SESSION MODELS (owner, 2026-09-28): a session owns its model and
+ *  thinking level from birth, stamped verbatim from the STRONG slot. No
+ *  strong slot (fresh BYOK boot) → no stamp; the turn gate's 503 refuses
+ *  honestly until setup fills the slot. */
+export function stampSessionModel(chatId: string): void {
+	const strong = stores.settingsStore.readSettings()?.models?.strong;
+	if (!strong?.model) return;
+	stores.chatStore.saveSettings(chatId, {
+		model: { provider: strong.model.provider, id: strong.model.id },
+		thinkingLevel: strong.thinkingLevel,
+	});
+}
 export { titleFromPrompt };
 export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
 

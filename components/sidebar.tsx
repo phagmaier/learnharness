@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -282,6 +282,11 @@ export function timeAgo(iso: string, now = new Date()): string {
  *  ever wanted. */
 function sessionMeta(chat: ChatListItem): string {
 	if (chat.compacting) return `Compacting context · ${timeAgo(chat.updatedAt)}`;
+	// Fork plan 04: a course setup session before its course exists.
+	if (chat.course?.role === "setup" && !chat.course.courseId) {
+		if (chat.busy) return "Course setup · Working…";
+		return `Course setup · ${chat.pendingQuestion ? "Waiting for input" : timeAgo(chat.updatedAt)}`;
+	}
 	if (chat.pendingQuestion) return `Waiting for input · ${timeAgo(chat.updatedAt)}`;
 	if ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) {
 		return `Problem waiting · ${timeAgo(chat.updatedAt)}`;
@@ -338,6 +343,9 @@ export function SessionRow({
 			    the teaching rows and reads cleaner. */}
 			{(chat.kind ?? "teach") === "practice" && (
 				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
+			)}
+			{chat.course?.role === "setup" && (
+				<GraduationCapIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Course setup" />
 			)}
 		</button>
 	);
@@ -721,6 +729,17 @@ function SessionsSidebar() {
 						<DumbbellIcon className="size-3 shrink-0" />
 						<span className="min-w-0 truncate">Practice</span>
 						<span className="sr-only">create a new practice session</span>
+					</button>
+					<button
+						type="button"
+						data-testid="new-session-course"
+						title="Course"
+						onClick={() => router.push("/chat/new?mode=course")}
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<GraduationCapIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">Course</span>
+						<span className="sr-only">start a new course</span>
 					</button>
 				</PluginSidebarActions>
 

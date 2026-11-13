@@ -534,3 +534,42 @@ The propositions block is left out when the unit has none.
   - Full suite: 5,458 pass, 1 fail, 4 skipped. The failure was `tests/plugin-api-reference.test.ts`, which pins the generated reference; after regeneration it passes alone (4/4).
   - New tests: `tests/courses.test.ts` (23), with every expected value worked by hand. They include the plan's proposed handoff text verbatim, rebuilt from evidence through the topic rule, and a hand-written `progress.md`. The golden course case in `tests/golden-fixtures.test.ts` also passes.
 - **Human checks owed:** none for this item (no UI).
+
+### Item 2 (2026-11-13)
+
+- **Built:**
+  - "Course" as the third start option: the home composer's switch, the sidebar's third button, and `/chat/new?mode=course`, with the approved placeholder. `POST /api/chats` accepts `course: { role: "setup" }`.
+  - The setup agent (`AgentKind` `setup`, `createSetupAgent`): the shared base, the approved setup doctrine verbatim, then the shared fragments. Its tools are the prober's minus `probe_done`, plus `propose_course` with the approved description. The doctrine is fixed in `src/agent/course-prompts.ts`.
+  - `propose_course` (`src/agent/tools/course.ts`): validated with item 1's rules, refusals return to the model, and it doesn't end the turn.
+  - The proposal card (`components/artifacts/course-proposal-card.tsx`) and the shared unit editor (`components/course-unit-editor.tsx`), with the editor rules in core (`parseCourseProposal`, `draftProblems`, `canMoveDraftUnit`, `moveDraftUnit`, `removeDraftUnit`, `togglePrerequisite`).
+  - `POST /api/courses` on the course service (`src/server/courses.ts`): it creates the record, links the setup session, starts unit 1, and opens it.
+  - After creation: the composer becomes "This course has been created." with "Open course", and the server refuses new input.
+  - The `unit-start` marker: learner input that the chat page continues from at once, shown as a quiet line (rendering arrives with item 4's chrome).
+- **Agent-selected:**
+  - **Prompt composition:** the base and shared fragments honor Settings → Prompts overrides by their usual keys; the setup doctrine has none. The `send_to_user` output tool applies to the setup agent as it does to the prober, for models that need it.
+  - **`propose_course` wording the plan didn't specify:** its success result reads "The learner sees the proposal as an editable card and creates the course from it." The input fields have one-line descriptions, and the live card reads "Proposing the course…".
+  - **Unit ids** are slugs of the units' (possibly edited) titles; the proposal's keys only name prerequisites.
+  - **Unit 1 starts inside course creation**, so the basics of starting a unit landed here. Its session is titled "<course> · <n>. <unit>", stamped with the Strong slot's model like any new session, and opened by its `unit-start` marker. The course records `unit-started` (id `unit-started:<chatId>`). Item 4 adds the route, source placement, warning, and agent context.
+  - **Refusals:**
+    - Creation refuses "This course has already been created." and "This proposal was replaced. Create the course from the latest one." A running turn reuses the deletion wording.
+    - A closed setup session answers 409 "This course has been created. Continue in its units." to learner input. A job result's wake gets 410 instead, which leaves the delivery pending; a 409 would make the wake pipeline retry it forever.
+  - **Crash recovery:** a setup session whose link wasn't written is adopted from the course's `setupChatId`.
+  - **Card details:**
+    - An "Edited" badge appears while this device holds edits.
+    - A unit can't move past a unit it builds on (uncheck first), and removing a unit unchecks it in later units.
+    - Field labels read "Goal", "Starting point", "Builds on", and "Add unit".
+    - A replaced proposal is collapsed; the created proposal is read-only with "Course created"; a refused call renders nothing.
+  - **Draft copy:** "New course", with "The teacher will pin down your goal, check broadly what you already know, and propose the course's units for you to edit."
+  - **Course icon:** a graduation cap on the switch, the sidebar button, and setup rows. A setup row reads "Course setup · <time>" (or "Waiting for input"/"Working…").
+  - **No extraction:** setup sessions hide the coverage ring, and the manual extract route refuses them ("Course setup sessions aren't extracted."). Their notes chip is hidden and their notes page redirects. Chains and the practice picker hide them through a new `courseRole` on source entries.
+  - **Test seam:** the handler passes the chosen `agentKind` to its `buildAgent` test seam.
+  - The `unit-start` details type lives in `native-messages.ts`: importing it from the course contracts pushed the plugin view context's deep readonly type past TypeScript's instantiation limit.
+  - The plugin API reference was regenerated (`LhMarkerMessage` lists `unit-start`).
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Full suite: 5,477 pass, 1 fail, 4 skipped. The failure was the stale generated API reference; after regeneration it passes alone (4/4).
+  - New: `tests/course-setup.test.tsx` (19). It covers composition and tools; a scripted turn where a forward-reference proposal is refused back to the model and a valid one follows; creation (record, ids, link, unit 1's session and marker, evidence, `progress.md`); the 400/409 refusals; route answers; crash adoption; closed-session refusals with no model call; extraction and chains exclusion; no notes; the start surfaces; the editor rules; and the card, replaced, created, and band renders.
+  - `npm run build` passed with the inherited `pdf-read.ts` tracing warning. `scripts/build-server.mjs` and `scripts/smoke-server.mjs` passed.
+- **Known limits until later items:** "Open course" points at `/course/<id>`, which arrives in item 3. Unit sessions run as ordinary probes until item 4 adds their course context.
+- **Human checks owed:** the checkpoint after item 3 covers this item's look.
+

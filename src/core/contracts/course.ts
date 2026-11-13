@@ -187,6 +187,11 @@ export type ChatCourseLink =
 	| { role: "unit"; courseId: string; unitId: string }
 	| { role: "practice"; courseId: string; unitId: string };
 
+/** The unit-start marker's model-facing text. */
+export function unitStartText(number: number, title: string): string {
+	return `[Unit start] The learner opened unit ${number}, ${title}. Begin the unit's probe.`;
+}
+
 /** The sidebar's view of a course. */
 export interface CourseSummary {
 	id: string;
@@ -198,3 +203,10 @@ export interface CourseSummary {
 	completedCount: number;
 	units: Array<{ id: string; title: string; status: UnitStatus; chatId?: string }>;
 }
+
+/** What a course session's page knows about its course (fork plan 04). */
+export type SessionCourseView = {
+	role: "setup";
+	/** Set once the setup session's course exists. */
+	courseId: string | null;
+};

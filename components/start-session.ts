@@ -3,6 +3,8 @@ import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "
 interface SessionCreation {
 	title: string;
 	kind?: "practice";
+	/** Fork plan 04: a course setup session. */
+	course?: { role: "setup" };
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
 }
 
@@ -31,4 +33,12 @@ export class SessionStarter {
 		if (!stashOpeningPrompt(this.created.id, body.title)) throw new Error(OPENING_PROMPT_FAILURE);
 		return `/chat/${this.created.id}`;
 	}
+}
+
+/** The start composer's opening question per mode (fork plan 04 adds the
+ *  course placeholder). */
+export function modePlaceholder(mode: "teach" | "practice" | "course"): string {
+	if (mode === "practice") return "What do you want to practice?";
+	if (mode === "course") return "What do you want to learn in this course?";
+	return "What do you want to learn?";
 }

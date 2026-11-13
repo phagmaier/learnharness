@@ -10,7 +10,7 @@
  * flight (the dock is the source of truth for that); failures are logged
  * by the pipeline and leave coverage untouched — the button stays honest.
  */
-import { extraction, extractionStatuses } from "@/src/server";
+import { extraction, extractionStatuses, getChat } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +24,11 @@ export async function POST(request: Request) {
 	const chatId = (body as { chatId?: unknown }).chatId;
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
+	}
+	// Fork plan 04: a course setup session is never extracted.
+	const record = getChat(chatId);
+	if (record?.course?.role === "setup") {
+		return Response.json({ error: "Course setup sessions aren't extracted." }, { status: 400 });
 	}
 	if (extractionStatuses().some((run) => run.kind === "chat" && run.chatId === chatId)) {
 		return Response.json({ error: "An extraction run is already in flight for this session" }, { status: 409 });

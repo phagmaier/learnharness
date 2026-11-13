@@ -25,6 +25,8 @@ export interface SourceEntry {
 	kind: "chat" | "notes" | "missing";
 	/** Read projection only; session records remain the source of truth. */
 	chatKind?: ChatKind;
+	/** Fork plan 04: the session's role in a course, when it has one. */
+	courseRole?: "setup" | "unit" | "practice";
 	label: string | null;
 	createdAt: string | null;
 	filePath?: string;
@@ -34,9 +36,10 @@ export interface SourceDirectory {
 	sources: SourceEntry[];
 }
 /** Chains browsing and practice picking share this presentation inventory.
- * Keep the full organization: hidden sessions still own their placements. */
+ * Keep the full organization: hidden sessions still own their placements.
+ * Practice sessions and course setup sessions (never extracted) are hidden. */
 export function chainSourceDirectory(directory: SourceDirectory): SourceDirectory {
-	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice") };
+	return { ...directory, sources: directory.sources.filter((s) => s.chatKind !== "practice" && s.courseRole !== "setup") };
 }
 export type OrganizationAction =
 	| { action: "create-folder"; name: string; parentId: string | null }

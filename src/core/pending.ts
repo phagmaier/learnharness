@@ -170,6 +170,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
 	pdf: "Reading a PDF…",
 	plan_init: "Drawing up the plan…",
 	probe_done: "Concluding the assessment…",
+	// Fork plan 04.
+	propose_course: "Proposing the course…",
 };
 
 /** The activity label for ONE running tool (owner, streaming round

@@ -17,6 +17,7 @@ import type {
 	HandoffTopic,
 	UnitHandoff,
 } from "./contracts/course.ts";
+import type { LhMessage } from "./native-messages.ts";
 
 // ─── names and numbers ──────────────────────────────────────────────────────
 
@@ -406,4 +407,110 @@ export function progressMarkdown(course: CourseRecord): string {
 		}
 	}
 	return `${lines.join("\n")}\n`;
+}
+
+// ─── the unit-list editor (setup card and "Edit units") ─────────────────────
+
+/** One row of the unit editor. `key` names the row for prerequisites; a
+ *  locked row is a unit that has started, so it can't be removed. */
+export interface UnitDraftRow {
+	key: string;
+	title: string;
+	goal: string;
+	startingPoint: string;
+	prerequisites: string[];
+	locked?: boolean;
+}
+
+export interface CourseDraft {
+	title: string;
+	goal: string;
+	units: UnitDraftRow[];
+}
+
+/** A propose_course call's input, or null when it isn't a proposal. */
+export function parseCourseProposal(raw: unknown): CourseDraft | null {
+	if (!raw || typeof raw !== "object") return null;
+	const input = raw as Record<string, unknown>;
+	if (typeof input.title !== "string" || typeof input.goal !== "string" || !Array.isArray(input.units)) return null;
+	const units: UnitDraftRow[] = [];
+	for (const entry of input.units) {
+		if (!entry || typeof entry !== "object") return null;
+		const unit = entry as Record<string, unknown>;
+		if (typeof unit.key !== "string" || typeof unit.title !== "string" || typeof unit.goal !== "string") return null;
+		const prerequisites = Array.isArray(unit.prerequisites) ? unit.prerequisites.filter((id): id is string => typeof id === "string") : [];
+		units.push({
+			key: unit.key, title: unit.title, goal: unit.goal,
+			startingPoint: typeof unit.startingPoint === "string" ? unit.startingPoint : "",
+			prerequisites,
+		});
+	}
+	return { title: input.title, goal: input.goal, units };
+}
+
+/** The editor's problems, in the same words the server uses. */
+export function draftProblems(draft: CourseDraft): string[] {
+	const units: CourseUnit[] = draft.units.map((row) => ({
+		id: row.key, title: row.title, goal: row.goal, prerequisites: row.prerequisites, status: "not-started",
+	}));
+	return [
+		...(draft.title.trim() ? [] : ["The course needs a title."]),
+		...(draft.goal.trim() ? [] : ["The course needs a goal."]),
+		...unitListProblems(units),
+	];
+}
+
+/** A row may move past its neighbour unless that would put a unit before a
+ *  unit it builds on. */
+export function canMoveDraftUnit(units: readonly UnitDraftRow[], index: number, direction: -1 | 1): boolean {
+	const other = index + direction;
+	if (index < 0 || other < 0 || other >= units.length) return false;
+	const [earlier, later] = direction === -1 ? [units[other]!, units[index]!] : [units[index]!, units[other]!];
+	return !later.prerequisites.includes(earlier.key);
+}
+
+export function moveDraftUnit(units: readonly UnitDraftRow[], index: number, direction: -1 | 1): UnitDraftRow[] {
+	if (!canMoveDraftUnit(units, index, direction)) return [...units];
+	const next = [...units];
+	[next[index], next[index + direction]] = [next[index + direction]!, next[index]!];
+	return next;
+}
+
+/** Remove a row; rows that built on it no longer do. Locked rows stay. */
+export function removeDraftUnit(units: readonly UnitDraftRow[], index: number): UnitDraftRow[] {
+	const gone = units[index];
+	if (!gone || gone.locked) return [...units];
+	return units.filter((_, i) => i !== index).map((row) => row.prerequisites.includes(gone.key)
+		? { ...row, prerequisites: row.prerequisites.filter((key) => key !== gone.key) }
+		: row);
+}
+
+/** Toggle whether the row at `index` builds on the earlier row `key`. */
+export function togglePrerequisite(units: readonly UnitDraftRow[], index: number, key: string): UnitDraftRow[] {
+	return units.map((row, i) => i !== index ? row : {
+		...row,
+		prerequisites: row.prerequisites.includes(key)
+			? row.prerequisites.filter((candidate) => candidate !== key)
+			: units.slice(0, index).filter((earlier) => earlier.key === key || row.prerequisites.includes(earlier.key)).map((earlier) => earlier.key),
+	});
+}
+
+/** The latest successful propose_course call in a setup session's record. */
+export function latestProposalCallId(messages: readonly LhMessage[]): string | undefined {
+	const succeeded = new Set(messages.flatMap((message) =>
+		message.role === "toolResult" && message.toolName === "propose_course" && !message.isError ? [message.toolCallId] : []));
+	let latest: string | undefined;
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const block of message.content) {
+			if (block.type === "toolCall" && block.name === "propose_course" && succeeded.has(block.id)) latest = block.id;
+		}
+	}
+	return latest;
+}
+
+/** Whether a session's teaching enters the graph: practice sessions and
+ *  course setup sessions (a broad survey, not a lesson) are never extracted. */
+export function sessionExtracts(record: { kind?: string; course?: { role: string } }): boolean {
+	return record.kind !== "practice" && record.course?.role !== "setup";
 }

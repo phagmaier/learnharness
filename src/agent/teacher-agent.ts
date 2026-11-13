@@ -6,9 +6,11 @@ import type { Usage } from "@earendil-works/pi-ai";
 import { PATHS } from "../../config.ts";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
+import { SETUP_DOCTRINE } from "./course-prompts.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
+	createSetupTools,
 	createTeacherTools,
 	type ProbeDoneContext,
 	type ProberToolContext,
@@ -54,13 +56,15 @@ import { PluginQuestionLedger, type NativePluginQuestionContribution } from "./p
 
 /** Which agent's prompt directory to compose. Practice (2026-10-04)
  *  composes ONLY its own directory — see prompt-segments.ts. */
-export type AgentKind = "prober" | "teacher" | "practice";
+export type AgentKind = "prober" | "teacher" | "practice" | "setup";
 
 /** Reserve conversation builtins even when role/mechanics/settings gates hide them.
  * New builtin names must join this catalog; actual turn tools are reserved too. */
 export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
+	// Fork plan 04: the course tools.
+	"propose_course",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -85,12 +89,25 @@ export const CONVERSATION_TOOL_NAMES = Object.freeze([
  *  through config paths, not request state — the store import carries no
  *  chat/job machinery. */
 export function composeInstructions(kind: AgentKind, switches?: Record<string, boolean>): string {
+	if (kind === "setup") return composeSetupInstructions(switches);
 	const segments = effectivePromptSegments(kind, switches ?? {});
 	return segments
 		.map((s) => (s.enabled ? s.overrideText! : s.sourceText))
 		.map((t) => t.trim())
 		.filter(Boolean)
 		.join("\n\n---\n\n");
+}
+
+/** The course setup agent (fork plan 04): the shared base, then the fixed
+ *  setup doctrine, then the shared fragments — never the prober doctrine.
+ *  The base and shared fragments honor overrides by their usual keys; the
+ *  setup doctrine is fixed in code. */
+function composeSetupInstructions(switches?: Record<string, boolean>): string {
+	const segments = effectivePromptSegments("prober", switches ?? {});
+	const text = (segment: (typeof segments)[number]) => (segment.enabled ? segment.overrideText! : segment.sourceText).trim();
+	const base = segments.filter((segment) => segment.path === "system-prompt.md").map(text);
+	const shared = segments.filter((segment) => segment.path.startsWith("shared/")).map(text);
+	return [...base, SETUP_DOCTRINE, ...shared].filter(Boolean).join("\n\n---\n\n");
 }
 
 // The switch-free source composition, cached per kind (module-load once).
@@ -101,6 +118,7 @@ const composedInstructions: Record<AgentKind, string> = {
 	prober: composeInstructions("prober"),
 	teacher: composeInstructions("teacher"),
 	practice: composeInstructions("practice"),
+	setup: composeInstructions("setup"),
 };
 
 // Money channel (wave 4): the chat-handler passes a per-turn collector;
@@ -207,7 +225,7 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	// the session's conversation engine — practice rides the same
 	// conversation-spec resolution as teaching); the cast keeps AgentKind
 	// ("practice" is not a ModelRole) honest about that.
-	const engine = opts.engine ?? piEngineFor(kind as "prober" | "teacher");
+	const engine = opts.engine ?? piEngineFor(kind === "setup" ? "prober" : kind as "prober" | "teacher");
 	const stopper = makeQuestionStopper(kind);
 	const narrationGuard = narrationGuardApplies(kind, engine.model, opts.tools !== undefined);
 	const narrationHooks = narrationGuard ? makeNarrationGuard() : undefined;
@@ -226,7 +244,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 			: []),
 	];
 	const contributions = opts.tools === undefined && opts.chatId && opts.pluginContributions
-		? opts.pluginContributions({ chatId: opts.chatId, agent: kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
+		// Plugins see the setup agent as the prober (fork plan 04), so their
+		// question types keep working and the plugin API is unchanged.
+		? opts.pluginContributions({ chatId: opts.chatId, agent: kind === "setup" ? "prober" : kind }, [...CONVERSATION_TOOL_NAMES, ...builtinTools.map(tool => tool.name)])
 		: undefined;
 	const questionLedger = contributions?.questionTypes?.length && opts.chatId
 		? new PluginQuestionLedger(contributions.questionTypes, opts.chatId, nodeExists) : undefined;
@@ -340,6 +360,16 @@ export function createProberAgent(ctx: ProberToolContext, opts: AgentBuildOption
 }
 
 /**
+ * The course SETUP agent (fork plan 04): an ordinary conversation on the
+ * session's own model that probes coarsely across the field and proposes
+ * the unit list with propose_course. It never plans or teaches, so it has
+ * no probe_done and no plan tools.
+ */
+export function createSetupAgent(ctx: Omit<ProberToolContext, "deliver">, opts: AgentBuildOptions = {}) {
+	return baseAgentOptions("setup", opts, Object.values(opts.tools ?? createSetupTools(ctx, opts.toolToggles)));
+}
+
+/**
  * The TEACHER (agent B): enters at planning (the probe is already
  * concluded — its assessment is in the transcript), owns plan_init and the
  * full toolset (teach questions with validated nodeId, the map, research,
@@ -408,5 +438,6 @@ export function createPracticeAgent(ctx: PracticeToolContext, opts: AgentBuildOp
 export type ProberAgent = ReturnType<typeof createProberAgent>;
 export type TeacherAgent = ReturnType<typeof createTeacherAgent>;
 export type PracticeAgent = ReturnType<typeof createPracticeAgent>;
-export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent;
+export type SetupAgent = ReturnType<typeof createSetupAgent>;
+export type TeachingAgent = ProberAgent | TeacherAgent | PracticeAgent | SetupAgent;
 
