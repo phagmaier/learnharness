@@ -87,11 +87,34 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Agent-selected implementation:* the parent allocates the helper profile and passes its path through the internal `LH_BROWSER_SERVICE_PROFILE` environment field; both Electron profile paths are set before readiness. The parent removes the profile after helper exit because Chromium may flush after Electron's quit event. The dev executable and app argument resolve from the real project working directory; packaged servers still self-execute. Input-view bridges are complete mutable objects held inside React refs. Repeatable runtime checks live in `scripts/smoke-browser-service.mjs` and `scripts/smoke-dev-runtime.mjs`.
 
+### Courses and units (course phase 1) — 2026-11-13
+
+*Human*, in the step 4 planning interview; details in [plan 04](plans/04-courses-and-units.md):
+
+- **Handoff model:** a *handoff writer* role draws from the **Strong** slot, with the usual optional per-role override. The course plan needs no role of its own: the setup session is an ordinary conversation on its own model.
+- **Solid and shaky:** the app rates each plan node of a unit from its **"check"** answers only. Predictions are excluded, since missing one before a step is taught is normal.
+  - *Solid:* the latest check is right at ≥ 70% confidence.
+  - *Shaky:* the latest check is wrong, don't know, or right below 70%, with the reason stated.
+  - Nodes never reached are carried forward.
+  - The handoff writer adds labeled, model-written notes (misconceptions repaired, things to carry forward, extra shaky items). It can never mark solid what the rule calls shaky.
+- **Ungraded answers:** free-recall (`explain`) and plugin answers have no stored verdict. They are recorded as **ungraded** evidence. A node with only ungraded answers gets the writer's judgment from the transcript, labeled as written by the model. Probe answers (unit probes and the setup probe) are recorded too, tagged by phase.
+- **"Practice this unit":** seeds the Practice session with the unit's title, goal and plan topics, and the shaky items from its handoff. If the unit has been extracted, its graph propositions are added. It works with the graph off and never waits for extraction.
+- **Edit rules:** units that have started (in progress or completed) can be renamed, re-goaled, reordered, and given different prerequisites, but not dropped or merged. Units that haven't started can change freely. The teacher's proposals follow the same rules, and invalid ones are refused back to the teacher.
+- **Starting points:** each proposed unit carries a one- or two-line *starting point* from the setup probe. The learner can edit it before creating the course. The unit's agent receives it beside the prerequisite handoffs, labeled as the setup probe's read.
+
+*Agent-selected, approved with plan 04 (human, 2026-11-13):*
+- **Storage:** each course keeps `data/courses/<courseId>/` with `course.json` (version 1, refused when newer), `progress.md`, and `notes/<chatId>/` per unit session in the phase-0 index format. Chat records gain an optional `course` back-pointer, and the chat version stays 2.
+- **Unit agents' context:** it is appended to the system prompt each turn, built fresh from the course record. That keeps it current and out of reach of compaction.
+- **Evidence:** a `goal-reached` event is recorded beside the decided events.
+- **Setup and plugins:** the setup agent appears to plugins as `prober`, so the plugin API is unchanged.
+
+*Human, 2026-11-13:* plan 04 is approved as written, including its **Proposed** items (prompt and tool wording, dialog wording, sidebar and overview details).
+
 ## Feature designs
 
 ### Courses, units, and notes
 
-**Status:** designed 2026-11-12. Phase 0 (notes and export for standalone Teach sessions) done 2026-11-13 ([plan 03](plans/03-notes-and-export.md)); phase 1 not yet planned.
+**Status:** designed 2026-11-12. Phase 0 (notes and export for standalone Teach sessions) done 2026-11-13 ([plan 03](plans/03-notes-and-export.md)). Phase 1 planned and approved 2026-11-13 ([plan 04](plans/04-courses-and-units.md)); in progress.
 
 **Problem (human):** everything happens in one chat. For large subjects (full-stack development, AI, linear algebra), one chat is wasteful and hard to review.
 
@@ -127,7 +150,7 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 - *2026-11-12, human:* build order: **phase 0**, on-demand HTML notes and HTML conversation export for standalone Teach sessions, which also builds the shared HTML template; then three course phases: (1) course, units, handoff, progress tracking, plus unit notes, the course Notes tab, and the completion-dialog offers; then **books** (see [Books](#books)); then (2) mastery gates with manual override; (3) competency and weak points, designed in detail once phases 1–2 produce evidence. Phase 1 must still record the evidence phase 3 will need.
 
 **Still open (settle when planning the relevant phase):**
-- Which model slot (Strong or Cheap) generates handoffs and the course plan. *(Notes: settled 2026-11-12, human — the Strong slot; see [plan 03](plans/03-notes-and-export.md).)*
+- ~~Which model slot (Strong or Cheap) generates handoffs and the course plan.~~ *Settled.* Notes use the Strong slot (2026-11-12, human; [plan 03](plans/03-notes-and-export.md)). Handoffs use the Strong slot, and the course plan comes from the setup session's own conversation model (2026-11-13, human; [plan 04](plans/04-courses-and-units.md)).
 - Phase 2 gate design: format, pass criteria, retries, override flow.
 - Phase 3 competency model and weak-point views.
 
@@ -191,7 +214,7 @@ Each item gets its own implementation plan, approved before work starts.
 1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
 2. *(Done 2026-11-12; see [plan 02](plans/02-fork-identity-packaging.md), items 1–5.)* **Fork identity:** LearnHarness Fork name and data folder, one-time data copy, updater off, and a local AppImage build. These only take effect in a packaged build; dev runs are unchanged.
 3. *(Done 2026-11-13; see [plan 03](plans/03-notes-and-export.md).)* **Phase 0:** on-demand HTML notes and conversation export.
-4. **Phase 1:** courses and units.
+4. *(Approved 2026-11-13, in progress; see [plan 04](plans/04-courses-and-units.md).)* **Phase 1:** courses and units.
 5. **Books.**
 6. **Phase 2:** mastery gates.
 7. **Phase 3:** competency and weak points.
