@@ -47,6 +47,12 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 - *Human:* the fork is packaged for the human's personal NixOS use only. The packaging method is chosen at planning time; today's upstream install is an AppImage in a Nix FHS wrapper.
 - *Agent-selected (human may veto):* the packaged fork disables upstream's auto-updater, whose feed points at upstream's GitHub releases and would replace the fork with upstream builds.
 - *Human:* keep CI's quality job (typecheck, tests, lint) and the Linux standalone build. Drop the macOS and Windows build jobs, `release.yml`, and `notify-website.yml`.
+- *Human, 2026-11-12 (step 2 interview; details in [plan 02](plans/02-fork-identity-packaging.md)):*
+  - **Packaging:** the AppImage is built locally, published as a GitHub release on the fork, and wrapped in Hermes with `appimageTools.wrapType2` as upstream is today. The agent edits Hermes on a branch; the human merges and activates. The app changes come first and packaging last.
+  - **Desktop PATH:** the Nix wrapper appends mise's shims folder to PATH. The login-shell environment is not loaded.
+  - **Data copy:** everything in upstream's folder except logs, caches, and Chromium lock files, sign-ins included. If upstream is running, the fork asks the human to quit it first and never starts empty by accident. A one-time dialog confirms the copy.
+  - **Updater UI:** the "Check for Updates…" menu item is removed. `homepage` points at the fork, so "Release notes" opens the fork's release.
+  - **Versions:** upstream base plus a fork counter (`0.6.1-fork.1`). Upstream's icon is kept.
 
 ## Feature designs
 
@@ -150,7 +156,7 @@ Keep upstream's npm and `package-lock.json`. Switching to pnpm would conflict on
 Each item gets its own implementation plan, approved before work starts.
 
 1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
-2. **Fork identity and packaging:** LearnHarness Fork name and data folder, one-time data copy, updater off, personal Nix package. Done before fork-only data formats exist, so real learning data is never mixed with upstream's.
+2. *(Planned; see [plan 02](plans/02-fork-identity-packaging.md).)* **Fork identity and packaging:** LearnHarness Fork name and data folder, one-time data copy, updater off, personal Nix package. Done before fork-only data formats exist, so real learning data is never mixed with upstream's.
 3. **Phase 0:** on-demand HTML notes and conversation export.
 4. **Phase 1:** courses and units.
 5. **Books.**
@@ -160,5 +166,5 @@ Each item gets its own implementation plan, approved before work starts.
 ## Open questions
 
 - Feature ideas beyond those above are welcome from agents; the human builds features directly in the fork and does not need local models.
-- **Desktop PATH under mise (settle in roadmap step 2).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Option for step 2: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.
+- **Desktop PATH under mise (settled 2026-11-12: the Nix wrapper adds mise's shims to PATH; see Decisions).** A desktop-launched app has no mise-activated PATH. The human's other machine runs upstream LearnHarness and can't find `claude`, nor `node` (likely because an npm-installed Claude CLI's script needs `node` on PATH); a `~/.local/bin/claude` symlink was a partial workaround. The app's own server runs on Electron's bundled Node; the only outside programs it launches are the Claude CLI (`src/agent/claude-code/binary.ts`) and Chrome for demo checks (`src/agent/subagents/headless.ts`). Roadmap step 1 added mise's shims folder to the Claude CLI search, and a shim sets up mise's tools for the program it runs. Option for step 2: have the packaged app load the login shell's environment at startup (as VS Code does), so every tool resolves as in a terminal.
 - Whether the fork's GitHub repository settings (Actions enabled, branch protection) need changes after the workflows are trimmed.
