@@ -255,6 +255,51 @@ for (const source of ["none", "file", "env"] as const) test(`Language is below t
 	if (source !== "env") assert.ok(byTest("key-deepgram_api_key-editor"), "first Escape closes only the menu");
 });
 
+// Fork (docs/fork/plans/01-small-fixes.md §5a/§5b): the default view is the
+// newest model per family plus the selected one; search and Show all reach
+// the rest; the toggle is remembered per device; unverified models are badged.
+test("the model menu's default view, search reach, Show all toggle, and unverified badge", async () => {
+	const f = await fixture();
+	const stored = new Map<string, string>();
+	const storage = { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => { stored.set(k, v); } };
+	const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+	Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: storage });
+	try {
+		const model = (provider: string, id: string, unverified?: true): ModelCatalogEntry => ({
+			id, provider, name: id, contextWindow: 32000, maxTokens: 4096, cost: null,
+			input: ["text"], reasoning: true, supportedLevels: [], ...(unverified ? { unverified } : {}),
+		});
+		const models = [
+			model("chatgpt", "gpt-6-sol"), model("chatgpt", "gpt-6.1-sol"), model("chatgpt", "gpt-6.1-terra"), model("chatgpt", "gpt-9-nova", true),
+			model("anthropic", "claude-opus-4-8"), model("anthropic", "claude-opus-5-5"),
+		];
+		const listed = () => [...document.querySelectorAll<HTMLButtonElement>('[data-testid="model-list"] button')].map((b) => b.dataset.testid!.replace("model-option-", "")).sort();
+		const menu = (key: string) => <ModelMenuList key={key} models={models} effectiveId="claude-opus-4-8" effectiveProvider="anthropic" onPick={() => {}} />;
+		await f.render(menu("first"));
+		assert.deepEqual(listed(), ["claude-opus-4-8", "claude-opus-5-5", "gpt-6_1-sol", "gpt-6_1-terra"], "newest per family, plus the selected older model");
+		const modelInput = document.querySelector<HTMLInputElement>('[data-testid="model-search"]')!;
+		await search("gpt-6-sol", modelInput);
+		assert.ok(listed().includes("gpt-6-sol"), "search reaches hidden models");
+		await search("nova", modelInput);
+		assert.deepEqual(listed(), ["gpt-9-nova"]);
+		assert.match(document.querySelector('[data-testid="model-unverified"]')!.textContent!, /New: limits unknown/);
+		await search("", modelInput);
+		const toggle = document.querySelector<HTMLInputElement>('[data-testid="model-show-all"]')!;
+		assert.equal(toggle.checked, false);
+		await act(async () => { toggle.checked = true; toggle.click(); });
+		assert.equal(listed().length, models.length, "Show all lists every model");
+		assert.equal(stored.get("lh:show-all-models"), "1");
+		await f.render(menu("remounted"));
+		assert.equal(listed().length, models.length, "the toggle is remembered per device");
+		Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } } });
+		await f.render(menu("blocked"));
+		assert.equal(listed().length, 4, "blocked storage falls back to the default view");
+	} finally {
+		if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+		else delete (globalThis as { localStorage?: unknown }).localStorage;
+	}
+});
+
 test("the shared model menu preserves ranking, provider identity, keyboard clamping, and row content", async () => {
 	const f = await fixture();
 	const model = (id: string, provider: string): ModelCatalogEntry => ({

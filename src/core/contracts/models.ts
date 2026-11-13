@@ -24,6 +24,9 @@ export interface ModelCatalogEntry {
 	/** Null for native CLI aliases whose effective limits are session-specific. */
 	contextWindow: number | null;
 	maxTokens: number | null;
+	/** Fork: an account model the library does not know yet; its limits are
+	 *  guessed. Absent for every verified model. */
+	unverified?: true;
 }
 
 /** Conversation default resolved from the strong slot, used for new sessions

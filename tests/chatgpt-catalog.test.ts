@@ -50,3 +50,31 @@ test("account/full and catalog authority changes reject outstanding old leases w
  ipc({ channel: "lh:chatgpt", kind: "state", stamp: { epoch: 2, authorityRevision: 3, revision: 8 }, status: status("B"), invalidate: "none" });
  assert.equal(chatGPTModels().length, 0); await assert.rejects(chatGPTLease(newScope, false));
 });
+// Fork (docs/fork/plans/01-small-fixes.md §5b): account models pi's catalog
+// does not know are kept with conservative guesses and marked unverified.
+test("unknown account models are kept with conservative limits and marked unverified; known ones are unchanged", async () => {
+ const { chatGPTModelUnverified } = await import("../src/agent/chatgpt-bridge.ts");
+ const { toModelDto } = await import("../src/server/model-catalog.ts");
+ const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
+ ipc({ channel: "lh:chatgpt", kind: "state", stamp: { epoch: 3, authorityRevision: 4, revision: 9 }, status: status("C"), invalidate: "all" });
+ const refresh = refreshChatGPTModels([model as never]);
+ reply(pending.at(-1), { epoch: 3, authorityRevision: 4, revision: 10, status: status("C"), accountId: "C", models: [{ id: model.id, name: "Known" }, { id: "gpt-9-nova", name: "GPT-9 Nova" }] });
+ await refresh;
+ const [known, unknown] = chatGPTModels();
+ assert.equal(known?.id, model.id); assert.equal(known?.contextWindow, model.contextWindow); assert.equal(chatGPTModelUnverified(model.id), false);
+ assert.equal(toModelDto(known!).unverified, undefined);
+ assert.ok(unknown);
+ assert.equal(unknown.id, "gpt-9-nova"); assert.equal(unknown.name, "GPT-9 Nova"); assert.equal(unknown.provider, "chatgpt"); assert.equal(unknown.api, "openai-responses");
+ assert.equal(unknown.contextWindow, 128_000); assert.equal(unknown.maxTokens, 32_000);
+ assert.deepEqual(unknown.input, ["text"]);
+ assert.deepEqual(getSupportedThinkingLevels(unknown), ["low", "medium", "high"]);
+ assert.deepEqual(unknown.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+ assert.equal(chatGPTModelUnverified("gpt-9-nova"), true);
+ assert.equal(toModelDto(unknown).unverified, true);
+});
+test("failures on an unverified model say its limits are guessed; verified failures and cancellations do not", async () => {
+ const { chatGPTFailureMessage } = await import("../src/agent/chatgpt-stream.ts");
+ assert.match(chatGPTFailureMessage("400 bad request", "gpt-9-nova", false), /new to LearnHarness.*guessed/);
+ assert.doesNotMatch(chatGPTFailureMessage("400 bad request", model.id, false), /guessed/);
+ assert.doesNotMatch(chatGPTFailureMessage("aborted", "gpt-9-nova", true), /guessed/);
+});

@@ -91,7 +91,7 @@ export function piModels() {
 				? { ...provider, ...lazyApi(() => import("@earendil-works/pi-ai/api/bedrock-converse-stream")) }
 				: provider);
 		}
-		collection.setProvider(createClaudeCodeProvider(streamClaudeCode));
+		collection.setProvider(createClaudeCodeProvider(streamClaudeCode, collection.getModels("anthropic")));
 	}
 	providerSource?.sync(collection);
 	return collection;

@@ -19,9 +19,9 @@
  * menu is open.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelCatalogEntry } from "@/src/core";
-import { CLAUDE_CODE_PROVIDER, CUSTOM_PROVIDER, fuzzyScore, subscriptionLabel } from "@/src/core";
+import { CLAUDE_CODE_PROVIDER, CUSTOM_PROVIDER, defaultVisibleModels, fuzzyScore, subscriptionLabel } from "@/src/core";
 import { formatTokens } from "@/components/usage-format";
 import { SearchMenuList } from "./search-menu-list";
 
@@ -29,6 +29,18 @@ function priceLabel(cost: ModelCatalogEntry["cost"]): string {
 	if (!cost) return "Unpriced";
 	const fmt = (n: number) => `$${n < 1 ? n.toFixed(2).replace(/0$/, "") : n.toFixed(2)}`;
 	return `${fmt(cost.input)}/${fmt(cost.output)}`;
+}
+
+/** Fork (docs/fork/plans/01-small-fixes.md §5a): "Show all models" is a
+ *  per-device viewing preference. Storage can be missing or throw; the
+ *  default (off) still works. */
+const SHOW_ALL_MODELS_KEY = "lh:show-all-models";
+const ALIAS_ONLY_PROVIDERS: ReadonlySet<string> = new Set([CLAUDE_CODE_PROVIDER]);
+function readShowAllModels(): boolean {
+	try { return globalThis.localStorage?.getItem(SHOW_ALL_MODELS_KEY) === "1"; } catch { return false; }
+}
+function writeShowAllModels(value: boolean): void {
+	try { globalThis.localStorage?.setItem(SHOW_ALL_MODELS_KEY, value ? "1" : "0"); } catch { /* per-device convenience only */ }
 }
 
 /** The model dropdown body — fuzzy search + ranked list. `models ===
@@ -66,6 +78,11 @@ export function ModelMenuList({
 	const visionItems = vision
 		? models?.filter((m) => m.input.includes("image") || m.provider === CUSTOM_PROVIDER.id)
 		: models;
+	// Fork: the newest model per family by default; the selected model always
+	// stays listed; search and "Show all models" reach everything.
+	const [showAll, setShowAll] = useState(readShowAllModels);
+	const defaultView = useMemo(() => defaultVisibleModels(visionItems ?? [], { aliasOnlyProviders: ALIAS_ONLY_PROVIDERS }), [visionItems]);
+	const isSelected = (m: ModelCatalogEntry) => m.id === effectiveId && m.provider === (effectiveProvider ?? m.provider);
 	return (
 		<>
 			<SearchMenuList
@@ -74,7 +91,8 @@ export function ModelMenuList({
 				searchTerms={(m) => [m.provider, m.id, m.name]}
 				compare={(a, b) => a.id.localeCompare(b.id)}
 				prioritize={vision ? (m) => m.input.includes("image") : undefined}
-				isSelected={(m) => m.id === effectiveId && m.provider === (effectiveProvider ?? m.provider)}
+				browse={showAll ? undefined : (m) => defaultView.has(m) || isSelected(m)}
+				isSelected={isSelected}
 				onPick={onPick}
 				searchTestid="model-search"
 				listTestid="model-list"
@@ -84,7 +102,10 @@ export function ModelMenuList({
 				empty="No models match."
 				renderItem={(m) => <>
 					<span className="flex items-center justify-between gap-2">
-						<span className="truncate text-card-foreground">{m.name}</span>
+						<span className="flex min-w-0 items-center gap-1.5">
+							<span className="truncate text-card-foreground">{m.name}</span>
+							{m.unverified && <span data-testid="model-unverified" title="LearnHarness does not know this model yet; its context and output limits are guessed." className="shrink-0 rounded border px-1 text-[10px] leading-4 text-muted-foreground">New: limits unknown</span>}
+						</span>
 						<span className="shrink-0 tabular-nums text-muted-foreground" title={m.provider === CLAUDE_CODE_PROVIDER ? "Billing is determined by your Claude Code configuration; LearnHarness does not estimate it." : subscriptionLabel(`${m.provider}:${m.id}`) ? "Subscription connection" : m.cost ? "USD per 1M tokens in/out" : "Price unavailable"}>
 							{m.provider === CLAUDE_CODE_PROVIDER ? "CLI billing" : subscriptionLabel(`${m.provider}:${m.id}`) ?? priceLabel(m.cost)}
 						</span>
@@ -95,6 +116,15 @@ export function ModelMenuList({
 					</span>
 				</>}
 			/>
+			<label className="mt-1 flex cursor-pointer items-center gap-1.5 border-t px-2 pt-1.5 text-xs text-muted-foreground">
+				<input
+					type="checkbox"
+					data-testid="model-show-all"
+					checked={showAll}
+					onChange={(event) => { setShowAll(event.target.checked); writeShowAllModels(event.target.checked); }}
+				/>
+				Show all models
+			</label>
 			{footer && (
 				<div className="mt-1 border-t px-2 pt-1.5 text-xs text-muted-foreground">{footer}</div>
 			)}

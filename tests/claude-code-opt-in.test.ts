@@ -20,6 +20,7 @@ const { chatStore } = await import("../src/store/chats.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { createJobRunner } = await import("../src/agent/subagents/runner.ts");
 const { CLAUDE_CODE_MODELS } = await import("../src/agent/claude-code/provider.ts");
+const { piModels } = await import("../src/agent/models.ts");
 
 function setup(t: TestContext) {
 	const previous = readSettings();
@@ -60,7 +61,8 @@ test("default off even with an installed binary; section writes toggle availabil
 	assert(!modelCatalog().models.some((m) => m.provider === "claude-code"));
 	assert.equal((await save({ enabled: true })).status, 200);
 	assert.equal(claudeCodeEnabled(), true); assert.equal(claudeCodeAvailable(), true);
-	assert.equal(modelCatalog().models.filter((m) => m.provider === "claude-code").length, 3);
+	// Fork: four aliases plus pi's Anthropic catalog as full names.
+	assert.equal(modelCatalog().models.filter((m) => m.provider === "claude-code").length, CLAUDE_CODE_MODELS.length + piModels().getModels("anthropic").length);
 	assert.equal((await save({ enabled: false })).status, 200);
 	assert.equal(claudeCodeAvailable(), false);
 	assert(!modelCatalog().models.some((m) => m.provider === "claude-code"));

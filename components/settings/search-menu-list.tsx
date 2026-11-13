@@ -7,7 +7,7 @@ import { fuzzyScore } from "@/src/core";
  * Models and dictation languages supply only their catalog and row content.
  * The caller owns the shared MenuShell and dismissal behavior. */
 export function SearchMenuList<T>({
-	items, itemKey, searchTerms, compare, prioritize, isSelected, onPick, renderItem,
+	items, itemKey, searchTerms, compare, prioritize, browse, isSelected, onPick, renderItem,
 	searchTestid, listTestid, optionTestid, placeholder, ariaLabel, loading, empty,
 	disabled = false,
 }: {
@@ -19,6 +19,9 @@ export function SearchMenuList<T>({
 	 *  rest, fuzzy rank still deciding within each group (a stable partition,
 	 *  never a filter — nothing is hidden). */
 	prioritize?: (item: T) => boolean;
+	/** Fork: while the search box is empty, list only items it accepts; any
+	 *  typed search still covers every item. */
+	browse?: (item: T) => boolean;
 	isSelected: (item: T) => boolean;
 	onPick: (item: T) => void;
 	renderItem: (item: T) => ReactNode;
@@ -42,7 +45,9 @@ export function SearchMenuList<T>({
 		listRef.current?.querySelector(`[data-idx="${menuIdx}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [menuIdx]);
 
+	const browsing = browse && query.trim() === "";
 	const results = (items ?? [])
+		.filter((item) => !browsing || browse(item))
 		.map((item) => ({ item, score: fuzzyScore(query, ...searchTerms(item)) }))
 		.filter((result) => result.score !== null)
 		.sort(

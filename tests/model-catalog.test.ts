@@ -366,12 +366,14 @@ function withClaudeInstalled(installed: boolean, fn: () => void, enabled = true)
 }
 
 describe("the claude-code provider (native CLI authentication, no LearnHarness key)", () => {
-	it("modelCatalog() lists claude-code opus/sonnet/haiku when the CLI is installed", () => {
+	it("modelCatalog() lists the claude-code aliases and full names when the CLI is installed", () => {
 		withClaudeInstalled(true, () => {
 			const ids = modelCatalog()
 				.models.filter((m) => m.provider === "claude-code")
 				.map((m) => m.id);
-			assert.deepEqual(ids, ["haiku", "opus", "sonnet"]);
+			// Fork: fable joins the aliases; pi's Anthropic ids follow for pinning.
+			assert.deepEqual(ids.filter((id) => !id.startsWith("claude-")), ["fable", "haiku", "opus", "sonnet"]);
+			assert.deepEqual(ids.filter((id) => id.startsWith("claude-")), piModels().getModels("anthropic").map((m) => m.id).sort());
 		});
 	});
 

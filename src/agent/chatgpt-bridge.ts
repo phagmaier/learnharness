@@ -10,8 +10,14 @@ interface LeaseValue extends Stamp { accessToken: string; accountId: string }
 interface Pending { op: string; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
 interface BridgeState {
  status: ChatGPTStatus; stamp: Stamp; models: Model<"openai-responses">[]; catalogAccount: string | null;
+ /** Fork: ids of account models pi's catalog does not know (guessed limits). Optional for state made by older module instances. */
+ unverified?: Set<string>;
  pending: Map<string, Pending>; controllers: Map<AbortController, boolean>; listeners: Set<() => void>; counter: number; catalogRequest: number;
 }
+/** Fork: guessed limits for unverified account models (human-approved). */
+const UNVERIFIED_CONTEXT_WINDOW = 128_000;
+const UNVERIFIED_MAX_TOKENS = 32_000;
+const UNVERIFIED_THINKING = { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null } as const;
 const key = Symbol.for("lh.chatgpt.bridge");
 const unavailable = (): ChatGPTStatus => ({ available: false, pending: false, allowBackgroundUse: true, activeId: null, accounts: [], error: null });
 const validStamp = (s: Stamp) => s && [s.epoch, s.authorityRevision, s.revision].every((v) => Number.isSafeInteger(v) && v >= 0);
@@ -59,7 +65,7 @@ function bridge(): BridgeState {
  }
  return global[key];
 }
-function clearCatalog(state: BridgeState) { state.models = []; state.catalogAccount = null; }
+function clearCatalog(state: BridgeState) { state.models = []; state.catalogAccount = null; state.unverified = new Set(); }
 function acceptStatus(state: BridgeState, value: StatusValue) {
  if (!validStamp(value) || value.revision < state.stamp.revision) return;
  if (value.epoch !== state.stamp.epoch || value.authorityRevision !== state.stamp.authorityRevision || value.status.activeId !== state.status.activeId) clearCatalog(state);
@@ -85,6 +91,8 @@ export function chatGPTBackgroundAllowed(): boolean { const s = chatGPTStatus();
 export function onChatGPTChange(listener: () => void): () => void { bridge().listeners.add(listener); return () => { bridge().listeners.delete(listener); }; }
 export function chatGPTModels(): Model<"openai-responses">[] { return bridge().models; }
 export function chatGPTModel(id: string): Model<"openai-responses"> | undefined { return chatGPTModels().find((m) => m.id === id); }
+/** True for an account model whose limits are guessed (fork; see refreshChatGPTModels). */
+export function chatGPTModelUnverified(id: string): boolean { return bridge().unverified?.has(id) === true; }
 export function chatGPTScope(selectedModelId: string): AdmissionScope {
  const state = bridge();
  if (!chatGPTConnected() || !state.catalogAccount || state.catalogAccount !== state.status.activeId || !chatGPTModel(selectedModelId)) throw new Error("ChatGPT account model catalog is unavailable");
@@ -122,10 +130,24 @@ export async function refreshChatGPTModels(supported: Model<"openai-responses">[
   acceptStatus(state, value);
   if (value.epoch !== state.stamp.epoch || value.authorityRevision !== state.stamp.authorityRevision || value.accountId !== state.status.activeId || !chatGPTConnected()) return;
   state.catalogAccount = value.accountId;
+  const knownModel = (entry: { id: string }) => supported.find((m) => m.id === entry.id && m.api === "openai-responses");
+  // Fork (docs/fork/plans/01-small-fixes.md §5b): keep models pi's catalog does
+  // not know yet, on the transport fields of a known model (the first one the
+  // account lists, else the first pi Responses model), with conservative limits.
+  const template = value.models.map(knownModel).find((m) => m !== undefined) ?? supported.find((m) => m.api === "openai-responses");
+  const unverified = new Set<string>();
   state.models = value.models.flatMap((entry) => {
-   const known = supported.find((m) => m.id === entry.id && m.api === "openai-responses");
-   return known ? [{ ...known, provider: "chatgpt", name: entry.name, headers: undefined, samplingParams: undefined, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] : [];
+   const known = knownModel(entry);
+   if (known) return [{ ...known, provider: "chatgpt", name: entry.name, headers: undefined, samplingParams: undefined, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }];
+   if (!template) return [];
+   unverified.add(entry.id);
+   return [{
+    ...template, id: entry.id, name: entry.name, provider: "chatgpt", headers: undefined, samplingParams: undefined,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, reasoning: true, input: ["text"],
+    contextWindow: UNVERIFIED_CONTEXT_WINDOW, maxTokens: UNVERIFIED_MAX_TOKENS, thinkingLevelMap: UNVERIFIED_THINKING,
+   } satisfies Model<"openai-responses">];
   });
+  state.unverified = unverified;
  } catch { if (sequence === state.catalogRequest) clearCatalog(state); }
 }
 export function chatGPTAbortController(background = true): { controller: AbortController; release: () => void } {

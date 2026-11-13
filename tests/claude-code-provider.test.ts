@@ -18,16 +18,36 @@ function createCollection() {
 	return collection;
 }
 
-test("lists exactly the opus, sonnet and haiku aliases", () => {
+test("lists exactly the opus, sonnet, haiku and fable aliases", () => {
 	const models = createCollection().getModels(CLAUDE_CODE_PROVIDER);
 	assert.deepEqual(
 		models.map((m) => m.id),
-		["opus", "sonnet", "haiku"],
+		["opus", "sonnet", "haiku", "fable"],
 	);
 	assert.deepEqual(
 		models.map((m) => m.name),
-		["Claude Opus", "Claude Sonnet", "Claude Haiku"],
+		["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable"],
 	);
+});
+
+// Fork (docs/fork/plans/01-small-fixes.md §5a): full names from pi's Anthropic
+// catalog follow the aliases, so a version can be pinned under "Show all models".
+test("adds full model names after the aliases, as CLI models with the alias settings", async () => {
+	const { piModels } = await import("../src/agent/models.ts");
+	const anthropic = piModels().getModels("anthropic");
+	const collection = createModels();
+	collection.setProvider(createClaudeCodeProvider(() => createAssistantMessageEventStream(), anthropic));
+	const models = collection.getModels(CLAUDE_CODE_PROVIDER);
+	assert.deepEqual(models.slice(0, 4).map((m) => m.id), ["opus", "sonnet", "haiku", "fable"]);
+	const opus = models.find((m) => m.id === "claude-opus-5-5");
+	assert.ok(opus);
+	assert.equal(opus.name, "Claude Opus 5.5");
+	assert.equal(opus.provider, CLAUDE_CODE_PROVIDER);
+	assert.equal(opus.api, models[0]!.api);
+	assert.deepEqual(opus.cost, models[0]!.cost);
+	assert.deepEqual(getSupportedThinkingLevels(opus), getSupportedThinkingLevels(models[0]!));
+	assert.equal(models.length, 4 + anthropic.length);
+	assert.ok(piModels().getModel(CLAUDE_CODE_PROVIDER, "claude-sonnet-5-5"), "the app's collection registers full names too");
 });
 
 test("supports low through max thinking and clamps off to low", () => {
@@ -53,5 +73,5 @@ test("every cost field is zero", () => {
 test("auth resolves as configured without any key", async () => {
 	const collection = createCollection();
 	assert.ok(await collection.checkAuth(CLAUDE_CODE_PROVIDER));
-	assert.equal((await collection.getAvailable(CLAUDE_CODE_PROVIDER)).length, 3);
+	assert.equal((await collection.getAvailable(CLAUDE_CODE_PROVIDER)).length, 4);
 });

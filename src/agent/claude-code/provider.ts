@@ -21,14 +21,19 @@ export const CLAUDE_CODE_MODELS: readonly Model<Api>[] = [
 	{ ...SHARED_MODEL_FIELDS, id: "opus", name: "Claude Opus" },
 	{ ...SHARED_MODEL_FIELDS, id: "sonnet", name: "Claude Sonnet" },
 	{ ...SHARED_MODEL_FIELDS, id: "haiku", name: "Claude Haiku" },
+	// Fork: the CLI's newest-Fable alias (`claude --help` lists it).
+	{ ...SHARED_MODEL_FIELDS, id: "fable", name: "Claude Fable" },
 ];
 
-export function createClaudeCodeProvider(streamSimple: StreamFunction<Api, SimpleStreamOptions>): Provider {
+/** Fork (docs/fork/plans/01-small-fixes.md §5a): the CLI also takes full model
+ *  names, so pi's Anthropic catalog ids follow the aliases for version pinning.
+ *  They get the alias settings: the CLI, not the catalog, decides limits and billing. */
+export function createClaudeCodeProvider(streamSimple: StreamFunction<Api, SimpleStreamOptions>, fullNames: readonly Model<Api>[] = []): Provider {
 	return createProvider({
 		id: CLAUDE_CODE_PROVIDER,
 		name: "Claude Code",
 		auth: { apiKey: { name: "Claude Code CLI", resolve: async () => ({ auth: {}, source: "claude CLI" }) } },
-		models: CLAUDE_CODE_MODELS,
+		models: [...CLAUDE_CODE_MODELS, ...fullNames.map((model) => ({ ...SHARED_MODEL_FIELDS, id: model.id, name: model.name }))],
 		api: { stream: streamSimple, streamSimple },
 	});
 }

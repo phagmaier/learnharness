@@ -2,7 +2,7 @@ import type { Api, AssistantMessage, Model, SimpleStreamOptions, StreamFunction,
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-responses";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
-import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial } from "./chatgpt-bridge.ts";
+import { chatGPTAbortController, chatGPTScope, chatGPTScopeCurrent, chatGPTLease, chatGPTDenial, chatGPTModelUnverified } from "./chatgpt-bridge.ts";
 import type { AdmissionScope, ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
 import { capturePreparedBackgroundPayload } from "./background-capture.ts";
 
@@ -17,6 +17,14 @@ export function chatGPTStreamError(message: string): string {
 	if (/catalog|model/.test(message)) return "The selected model is unavailable for this ChatGPT account. Refresh Providers and explicitly choose an available model. No API-key fallback was used.";
 	if (/incomplete|terminal|interrupted|stop reason/.test(message)) return "ChatGPT returned an incomplete response. Retry when ready; no API-key fallback was used.";
 	return "ChatGPT request failed. Check your connection and ChatGPT usage, then retry. No API-key fallback was used.";
+}
+
+/** The learner-facing failure text. Fork: an unverified model's failure may
+ *  come from its guessed limits, so say so (docs/fork/plans/01-small-fixes.md §5b). */
+export function chatGPTFailureMessage(raw: string, modelId: string, aborted: boolean): string {
+	const message = chatGPTStreamError(raw);
+	if (aborted || !chatGPTModelUnverified(modelId)) return message;
+	return `${message} This model is new to LearnHarness, so its limits are guessed; if this keeps failing, choose another model.`;
 }
 
 /** Restrict the body at the final payload seam, even if caller samplingParams add fields. */
@@ -111,7 +119,7 @@ export function chatGPTStream(background: () => boolean, lifecycle?: ChatGPTDisp
 			} catch (err) {
 				if (terminal) return;
 				if (!committed) lifecycle?.noDispatch(await chatGPTDenial(scope, controller, options?.signal?.aborted === true, purpose));
-				partial = { ...partial, stopReason: signal.aborted ? "aborted" : "error", errorMessage: chatGPTStreamError(err instanceof Error ? err.message : "") };
+				partial = { ...partial, stopReason: signal.aborted ? "aborted" : "error", errorMessage: chatGPTFailureMessage(err instanceof Error ? err.message : "", logicalModel.id, signal.aborted) };
 				output.push({ type: "error", reason: partial.stopReason as "error" | "aborted", error: partial });
 			} finally { release(); output.end(); }
 		})();

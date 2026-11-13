@@ -130,6 +130,7 @@ export interface ModelCatalogEntry {
     } | null;
     contextWindow: number | null;
     maxTokens: number | null;
+    unverified?: true;
 }
 ```
 
@@ -148,6 +149,7 @@ export interface ModelCatalogEntry {
 - [cost.cacheWrite](#modelcatalogentry-costcachewrite)
 - [contextWindow](#modelcatalogentry-contextwindow)
 - [maxTokens](#modelcatalogentry-maxtokens)
+- [unverified](#modelcatalogentry-unverified)
 
 ### ModelCatalogEntry id
 
@@ -236,6 +238,15 @@ contextWindow: number | null;
 
 ```ts
 maxTokens: number | null;
+```
+
+### ModelCatalogEntry unverified
+
+Fork: an account model the library does not know yet; its limits are
+guessed. Absent for every verified model.
+
+```ts
+unverified?: true;
 ```
 
 ## ModelCatalogResponse

@@ -53,11 +53,20 @@ const usage = { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_toke
 const complete = (output: unknown[] = []) => ({ type: "response.completed", response: { id: "resp_scratch", status: "completed", output, usage } });
 const context = () => normalizeContext({ systemPrompt: "Scratch teacher instructions", messages: [{ role: "user", content: [{ type: "text", text: "Scratch learning material" }, { type: "image", data: "c2NyYXRjaA==", mimeType: "image/png" }], timestamp: 1 }], tools: [{ name: "scratch_tool", description: "Scratch local tool", parameters: Type.Object({ value: Type.String() }) }] });
 
-test("catalog intersects supported capabilities, without inventing model limits", () => {
-	assert.equal(chatGPTModels().length, 1);
-	assert.equal(chatGPTModels()[0]!.provider, "chatgpt");
-	assert.equal(chatGPTModels()[0]!.contextWindow, model.contextWindow);
-	assert.deepEqual(chatGPTModels()[0]!.input, model.input);
+// Fork (docs/fork/plans/01-small-fixes.md §5b): upstream dropped account models
+// pi's catalog lacks; the fork keeps them, marked unverified with guessed limits.
+test("known account models keep pi's real limits; unknown ones are kept, unverified, with guessed limits", async () => {
+	const { chatGPTModelUnverified } = await import("../src/agent/chatgpt-bridge.ts");
+	assert.equal(chatGPTModels().length, 2);
+	const [known, unknown] = chatGPTModels();
+	assert.equal(known!.provider, "chatgpt");
+	assert.equal(known!.contextWindow, model.contextWindow);
+	assert.deepEqual(known!.input, model.input);
+	assert.equal(chatGPTModelUnverified(known!.id), false);
+	assert.equal(unknown!.id, "unknown-capabilities");
+	assert.equal(unknown!.contextWindow, 128_000);
+	assert.deepEqual(unknown!.input, ["text"]);
+	assert.equal(chatGPTModelUnverified(unknown!.id), true);
 });
 
 test("alias resolves only OAuth; native Responses body is stateless/namespaced, image/history preserved and logical output retained", async () => {

@@ -139,6 +139,26 @@ Also the picker's filtering in `tests/model-catalog-setup.test.tsx` or a neighbo
 - the badge and filtering behave as specified
 - the error note appears only for unverified models
 
+## Item 5 outcome (2026-11-12)
+
+- Implemented as planned:
+  - `src/core/model-families.ts`
+  - `browse` in `SearchMenuList`
+  - the toggle and badge in `ModelMenuList`
+  - unverified ChatGPT models in `src/agent/chatgpt-bridge.ts`, with the failure note in `chatGPTFailureMessage`
+  - the `fable` alias and full Anthropic names for Claude Code
+- *Agent-selected details:*
+  - The fallback template is the first known model in the account's list (else the first pi Responses model), not a "newest" one. All Responses models share the copied transport fields.
+  - The error note's wording.
+  - The toggle's storage key, `lh:show-all-models`.
+- *Upstream test changed on purpose:* `tests/chatgpt-stream.test.ts` pinned "do not invent capabilities" (dropping unknown models). It now pins the fork's unverified-model behavior.
+- *Plugin API:* `ModelCatalogEntry.unverified` is part of the plugin SDK, so `docs/plugin-api/` was regenerated.
+- *Browser check (dev server, scratch profile, dummy keys, nothing sent):*
+  - The default view showed 4 Anthropic models, 21 OpenAI (18 newest-per-family plus 3 unversioned ids, as prototyped) and 2 DeepSeek (from an ambient shell key).
+  - Show all listed all 64 and stored the preference.
+  - With the toggle off, searching "opus 4" found the hidden Opus 4.x models.
+- *Not seen in a real browser:* the unverified badge (needs a ChatGPT sign-in) and the Claude Code list (needs the CLI opt-in). Unit tests cover both.
+
 ## Not in this plan
 
 Fork identity, the updater, and Nix packaging (roadmap step 2); everything after.
