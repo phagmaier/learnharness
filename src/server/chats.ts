@@ -2,6 +2,7 @@ import { abortExtraction, extractionStatuses } from "../agent/subagents/extracti
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
 import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
+import { deleteSessionNotes } from "./notes.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
@@ -154,6 +155,8 @@ function finishChatRecordDeletion(chatId: string): number {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
 		sideChats.stopAll(chatId); // a running side answer has nowhere left to land
+		// Fork plan 03: the session's notes go with it (writers stopped first).
+		deleteSessionNotes(chatId);
 	}
 	return jobsRemoved;
 }

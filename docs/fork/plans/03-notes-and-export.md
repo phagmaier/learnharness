@@ -1,6 +1,6 @@
 # Plan 03: notes and conversation export (roadmap step 3, course phase 0)
 
-**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–4 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
+**Status:** approved by the human 2026-11-12, including its Proposed items. Work happens on branch `phase0-notes-export`. Item 1 ends at a checkpoint: the human approves the look (and fonts) from screenshots before item 2 starts. *Items 1–5 done 2026-11-13; checkpoint approved (see [Outcome](#outcome)).*
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in the interview are marked **Decided (human)**. Agent-selected implementation details are marked as such and reported again at completion. **Proposed** items are product choices the agent filled in; approving the plan approves them, or the human edits them.
 
@@ -381,6 +381,22 @@ The user message holds the session title, the session text in a `<session>` bloc
   - A real note from a real session on your provider.
   - Opening a downloaded note and an export outside the app.
   - In the desktop app, clicking a web link in a note: it should open in the system browser.
+
+### Item 5 (2026-11-13)
+
+- **Built:**
+  - Deleting a session removes `data/notes/<chatId>/` once its record is gone, for both delete paths (the dialog's and source deletion's), through `finishChatRecordDeletion`. The session's running note writers are stopped first. A stopped writer finds no index and writes nothing back.
+  - With notes present, the delete dialog adds the planned line and a "Download notes" link to `archive.zip` (saved as `<session-slug>-notes.zip`). The dialog stays open.
+- **Agent-selected:**
+  - One note reads "This also deletes its 1 note." (the planned wording, singular).
+  - The dialog fetches the note count when it opens.
+  - "Download notes" sits at the left of the Cancel and Delete row.
+  - Note writers don't block deletion, unlike background jobs; they are stopped.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Tests: 5401 pass, 1 fail, 4 skipped. The failure was the timing-sensitive `tests/atomic-write.test.ts` "folders in the way fail at once" (a 50 ms bound, run while the dev server was up); it passed 23/23 alone, twice.
+  - New tests: 2 deletion cases in `tests/notes.test.ts` and a dialog case in `tests/session-context.test.tsx`.
+  - Browser check: the dialog showed "This also deletes its 1 note.", "Download notes" saved a valid zip with the dialog still open, and Delete removed the session and its notes folder.
 
 ## Not in this plan
 

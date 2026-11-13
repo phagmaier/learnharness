@@ -82,6 +82,32 @@ describe("DeleteSessionDialog — the node-dialog shape (owner flow rework 2026-
 		assert.match(html, /data-testid="session-name-code"[^>]*>Orbital mechanics</);
 	});
 
+	it("names the session's notes and offers them as one zip only when notes exist (fork plan 03)", () => {
+		const body = (noteCount?: number) => renderToStaticMarkup(
+			<DeleteSessionBody
+				chat={{ id: "c1", title: "Orbital mechanics" }}
+				{...(noteCount !== undefined ? { noteCount } : {})}
+				traces={false}
+				busy={false}
+				failure={null}
+				onTraces={() => {}}
+				onClose={() => {}}
+				onRun={() => {}}
+			/>,
+		);
+		for (const html of [body(), body(0)]) {
+			assert.ok(!html.includes("delete-notes-line"));
+			assert.ok(!html.includes("Download notes"));
+		}
+		const three = body(3);
+		assert.match(three, /data-testid="delete-notes-line"[^>]*>This also deletes its 3 notes\.</);
+		assert.match(three, /<a href="\/api\/chats\/c1\/notes\/archive\.zip" download=""[^>]*data-testid="delete-download-notes"[^>]*>Download notes<\/a>/);
+		assert.match(body(1), />This also deletes its 1 note\.</);
+		// The Delete and Cancel pair is unchanged beside it.
+		assert.match(three, /data-testid="delete-cancel"/);
+		assert.match(three, /data-testid="delete-confirm"/);
+	});
+
 	it("one unchecked-by-default checkbox for the graph traces — the graph-touching consequence says so", () => {
 		const html = renderToStaticMarkup(
 			<DeleteSessionBody

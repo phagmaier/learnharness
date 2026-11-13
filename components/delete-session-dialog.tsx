@@ -15,6 +15,11 @@ export const TRACES_COPY = {
 	body: "This session’s topics, links, and events leave the graph too. Topics other sessions or imported notes also cover survive; topics only this session created are removed entirely.",
 };
 
+/** The dialog's notes line (fork plan 03, proposed wording). */
+export function notesDeletionLine(count: number): string {
+	return `This also deletes its ${count} ${count === 1 ? "note" : "notes"}.`;
+}
+
 /**
  * Session deletion (wave 6 chunk A; owner flow rework 2026-09-24) — THE
  * destructive-confirmation surface, portaled z-50 like the setup dialog,
@@ -51,6 +56,9 @@ export function DeleteSessionDialog({
 }) {
 	const [traces, setTraces] = useState(false);
 	const [busy, setBusy] = useState(false);
+	// Fork plan 03: the session's notes are deleted with it; the count drives
+	// the warning line and the "Download notes" offer.
+	const [noteCount, setNoteCount] = useState(0);
 	// Retry IS pressing Delete again: the mode always derives from the
 	// checkbox's current state (a toggle between failure and retry is a
 	// change of intent, honored as such — the checkbox is disabled while
@@ -63,7 +71,17 @@ export function DeleteSessionDialog({
 			setTraces(false);
 			setBusy(false);
 			setFailure(null);
+			setNoteCount(0);
 		}
+	}, [chat]);
+	useEffect(() => {
+		if (!chat) return;
+		let live = true;
+		void fetch(`/api/chats/${encodeURIComponent(chat.id)}/notes`, { cache: "no-store" })
+			.then((res) => (res.ok ? res.json() : null))
+			.then((body: { notes?: unknown[] } | null) => { if (live) setNoteCount(body?.notes?.length ?? 0); })
+			.catch(() => {});
+		return () => { live = false; };
 	}, [chat]);
 
 	const run = async () => {
@@ -97,6 +115,7 @@ export function DeleteSessionDialog({
 
 	return <DeleteSessionBody
 				chat={chat}
+				noteCount={noteCount}
 				traces={traces}
 				busy={busy}
 				failure={failure}
@@ -114,6 +133,7 @@ export function DeleteSessionDialog({
  *  node-dialog body pattern). The wrapper owns state + effects + portal. */
 export function DeleteSessionBody({
 	chat,
+	noteCount = 0,
 	traces,
 	busy,
 	failure,
@@ -123,6 +143,9 @@ export function DeleteSessionBody({
 	renderFrame,
 }: {
 	chat: Pick<ChatListItem, "id" | "title">;
+	/** The session's notes (fork plan 03): deleted with it; > 0 adds the
+	 *  warning line and a "Download notes" link to the notes archive. */
+	noteCount?: number;
 	/** The graph-traces checkbox — unchecked by default (preserve-graph). */
 	traces: boolean;
 	busy: boolean;
@@ -156,6 +179,11 @@ export function DeleteSessionBody({
 				This permanently removes the session — its messages, background jobs, and extraction records. Everything
 				it added to the graph stays unless you check below. This cannot be undone.
 			</p>
+			{noteCount > 0 && (
+				<p data-testid="delete-notes-line" className="mt-2 text-sm text-muted-foreground">
+					{notesDeletionLine(noteCount)}
+				</p>
+			)}
 			<label
 				data-testid={TRACES_COPY.testid}
 				className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/60 px-4 py-3"
@@ -195,6 +223,18 @@ export function DeleteSessionBody({
 			    red Delete (border + text, fill on hover — the app's
 			    established destructive pair). */}
 			<div className="mt-4 flex justify-end gap-2">
+				{noteCount > 0 && (
+					// Fork plan 03: one .zip of the notes before they go; the route
+					// names it "<session-slug>-notes.zip" and the dialog stays open.
+					<a
+						href={`/api/chats/${encodeURIComponent(chat.id)}/notes/archive.zip`}
+						download
+						data-testid="delete-download-notes"
+						className="mr-auto rounded-sm px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-accent"
+					>
+						Download notes
+					</a>
+				)}
 				<button
 					type="button"
 					data-testid="delete-cancel"

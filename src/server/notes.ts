@@ -237,6 +237,17 @@ export function deleteNote(chatId: string, noteId: string): boolean {
 	return removed;
 }
 
+/** Delete every note of a session (session deletion): stop its writers,
+ *  then remove the folder. A stopped writer finds no index and writes
+ *  nothing back. */
+export function deleteSessionNotes(chatId: string): void {
+	for (const entry of running().values()) {
+		if (entry.chatId === chatId) entry.controller.abort();
+	}
+	sessionNoteStore(chatId).removeAll();
+	changed(chatId);
+}
+
 /** Every note with a version on disk, as one zip of HTML files. */
 export function notesArchive(chatId: string): { filename: string; zip: Buffer; count: number } | NoteRefusal {
 	const record = stores.chatStore.getChat(chatId);

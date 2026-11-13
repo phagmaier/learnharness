@@ -494,6 +494,51 @@ describe("notes routes", () => {
 	});
 });
 
+// ─── session deletion ───────────────────────────────────────────────────────
+
+describe("session deletion", () => {
+	it("removes the session's notes folder and leaves other sessions' notes alone", async () => {
+		const { deleteChatSession } = await import("../src/server/chats.ts");
+		const doomed = makeChat("Doomed");
+		const kept = makeChat("Kept");
+		for (const chatId of [doomed, kept]) {
+			useEngine(scripted([submit("A note", ASSETS_FREE_NOTE)]).engine);
+			const created = notes.createNote(chatId, {});
+			assert.ok(created.ok);
+			await settled(chatId, created.note.id);
+		}
+		assert.ok(fs.existsSync(path.join(TMP, "notes", doomed)));
+		const outcome = await deleteChatSession(doomed, "preserve-graph");
+		assert.equal(outcome.ok, true);
+		assert.equal(fs.existsSync(path.join(TMP, "notes", doomed)), false);
+		assert.equal(notes.listNotes(kept).length, 1);
+		assert.ok(fs.readdirSync(path.join(TMP, "notes", kept)).some((name) => name.endsWith(".html")));
+	});
+
+	it("stops a running writer first, and nothing is written back", async () => {
+		const { deleteChatSession } = await import("../src/server/chats.ts");
+		const chatId = makeChat("Busy");
+		let sawAbort = false;
+		const { engine } = scripted([
+			(_context, options) => new Promise((_resolve, reject) => {
+				options?.signal?.addEventListener("abort", () => { sawAbort = true; reject(Object.assign(new Error("aborted"), { name: "AbortError" })); }, { once: true });
+			}),
+		]);
+		useEngine(engine);
+		const created = notes.createNote(chatId, {});
+		assert.ok(created.ok);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const outcome = await deleteChatSession(chatId, "preserve-graph");
+		assert.equal(outcome.ok, true);
+		for (let i = 0; i < 200 && notes.noteWriterActivities().some((row) => row.noteId === created.note.id); i++) {
+			await new Promise((resolve) => setTimeout(resolve, 5));
+		}
+		assert.equal(sawAbort, true, "the writer's request was aborted");
+		assert.equal(notes.noteWriterActivities().some((row) => row.chatId === chatId), false);
+		assert.equal(fs.existsSync(path.join(TMP, "notes", chatId)), false, "the stopped writer recreated nothing");
+	});
+});
+
 // ─── activity and events ────────────────────────────────────────────────────
 
 describe("note writer activity", () => {
