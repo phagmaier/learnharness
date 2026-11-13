@@ -37,6 +37,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
+const os = require("node:os");
 const path = require("node:path");
 
 // Mirrors SIDEBAR_AUTOCLOSE in components/sidebar.tsx — keep in sync (the
@@ -48,6 +49,7 @@ const SIDEBAR_AUTOCLOSE = 928;
 // in upstream's <appData>/LearnHarness (read only by the one-time copy).
 const PRODUCT_NAME = "LearnHarness Fork";
 const USER_DATA_DIRNAME = "LearnHarness-Fork";
+const UPSTREAM_USER_DATA_DIRNAME = "LearnHarness";
 
 // APP NAME → userData (owner, 2026-10-10; fork: the folder name is set
 // explicitly because the display name has a space). Packaged Electron would
@@ -64,6 +66,7 @@ const DATA_DIR = () => path.join(app.getPath("userData"), "data");
 // it current after live saves. This helper needs no compiled server bundle.
 const { normalizeAppearance, themeSourceFor, serverDataDir, readAppearance, chromeColors } = require("./appearance-chrome.cjs");
 const { contextMenuTemplate } = require("./context-menu.cjs");
+const { copyUpstreamOnce, upstreamRunning } = require("./upstream-copy.cjs");
 let appearance = normalizeAppearance(null);
 
 function applyChrome(win) {
@@ -149,7 +152,9 @@ if (process.argv.includes("--browser-service")) {
 				win.focus();
 			}
 		});
-		main();
+		// Fork: the one-time upstream copy runs here, holding this app's lock
+		// and before app ready, while Chromium has not opened this profile.
+		main(runUpstreamCopy());
 	}
 }
 
@@ -688,7 +693,69 @@ function installMenu() {
 	Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-async function main() {
+// ─── Fork: one-time copy of upstream's folder (electron/upstream-copy.cjs) ───
+// Packaged builds only: dev uses the repo's data and its own -dev profile.
+function upstreamFolder() {
+	return path.join(app.getPath("appData"), UPSTREAM_USER_DATA_DIRNAME);
+}
+
+function runUpstreamCopy() {
+	if (!app.isPackaged || process.env.LH_DEV_URL) return { status: "skipped" };
+	const result = copyUpstreamOnce({ source: upstreamFolder(), destination: app.getPath("userData") });
+	log(`upstream copy: ${result.status}${result.error ? ` — ${result.error?.message ?? result.error}` : ""}`);
+	return result;
+}
+
+/** Shown paths use ~ for the home folder. */
+function homeRelative(folder) {
+	const home = os.homedir();
+	return folder === home || folder.startsWith(home + path.sep) ? `~${folder.slice(home.length)}` : folder;
+}
+
+/** Settles the copy's result with the human once dialogs can show. Returns
+ *  false when this launch must stop (quit, or relaunch to copy). */
+async function settleUpstreamCopy(result) {
+	const where = homeRelative(upstreamFolder());
+	if (result.status === "upstream-running") {
+		for (;;) {
+			const { response } = await dialog.showMessageBox({
+				type: "info", title: "LearnHarness is running",
+				message: "Quit LearnHarness so LearnHarness Fork can copy your learning data. Your original data stays untouched.",
+				buttons: ["Retry", "Quit"], defaultId: 0, cancelId: 1, noLink: true,
+			});
+			if (response !== 0) {
+				app.exit(0);
+				return false;
+			}
+			if (!upstreamRunning(upstreamFolder())) {
+				// Copy at the next start, before Chromium opens the profile.
+				log("upstream copy: upstream closed — relaunching to copy");
+				app.relaunch(process.env.APPIMAGE ? { execPath: process.env.APPIMAGE } : undefined);
+				app.exit(0);
+				return false;
+			}
+		}
+	}
+	if (result.status === "failed") {
+		await dialog.showMessageBox({
+			type: "error", title: PRODUCT_NAME,
+			message: `LearnHarness Fork couldn't copy your data from ${where}: ${result.error?.message ?? result.error}. Nothing in the original was changed. The fork will try again the next time it starts.`,
+			buttons: ["Quit"], noLink: true,
+		});
+		app.exit(1);
+		return false;
+	}
+	if (result.status === "copied") {
+		await dialog.showMessageBox({
+			type: "info", title: PRODUCT_NAME,
+			message: `Copied your LearnHarness data into LearnHarness Fork. The original in ${where} is untouched.`,
+			buttons: ["OK"], noLink: true,
+		});
+	}
+	return true;
+}
+
+async function main(upstreamCopy = { status: "skipped" }) {
 	app.on("window-all-closed", () => {
 		chatgpt?.pause();
 		subscriptions?.pause();
@@ -702,6 +769,7 @@ async function main() {
 	process.on("SIGHUP", killServer);
 
 	await app.whenReady();
+	if (!(await settleUpstreamCopy(upstreamCopy))) return;
 
 	// Read the same record/custom theme the server uses before constructing
 	// any native window, including the external development shell.
