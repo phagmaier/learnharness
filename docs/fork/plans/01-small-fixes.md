@@ -159,6 +159,12 @@ Also the picker's filtering in `tests/model-catalog-setup.test.tsx` or a neighbo
   - With the toggle off, searching "opus 4" found the hidden Opus 4.x models.
 - *Not seen in a real browser:* the unverified badge (needs a ChatGPT sign-in) and the Claude Code list (needs the CLI opt-in). Unit tests cover both.
 
+## Review fixes (2026-11-12)
+
+A review of the branch led to one fix commit (`d2009e6`):
+
+- *Model picker keyboard navigation (bug fix; agent-selected behavior, recorded in the fork README).* Turning "Show all models" off could leave the keyboard highlight past the end of the shorter list. Enter then picked nothing, and ArrowUp moved through hidden rows. `SearchMenuList` now clears an out-of-range highlight and keeps the search text. Enter picks the first visible model, and ArrowUp starts from the last one. `tests/dictation-picker.test.tsx` covers both keys and checks that the toggle keeps an active search.
+
 ## Not in this plan
 
 Fork identity, the updater, and Nix packaging (roadmap step 2); everything after.
