@@ -20,7 +20,8 @@ export function verifyCompressionRuntime(root, runtime = process.execPath) {
 		for (const dir of ["data", "tmp"]) fs.mkdirSync(path.join(home, dir));
 		fs.writeFileSync(path.join(home, "auth.json"), "{}\n", { mode: 0o600 });
 		// Allowlist rather than inherit credentials, Node preloads, or app settings.
-		const env = Object.fromEntries(["PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"].flatMap(key =>
+		// Fork: NixOS loads prebuilt binaries such as Electron through nix-ld.
+		const env = Object.fromEntries(["PATH", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "NIX_LD", "NIX_LD_LIBRARY_PATH"].flatMap(key =>
 			process.env[key] === undefined ? [] : [[key, process.env[key]]]));
 		const result = spawnSync(runtime, [fileURLToPath(import.meta.url), "--probe", path.resolve(root)], {
 			cwd: home,
