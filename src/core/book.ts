@@ -19,6 +19,9 @@ import type {
 	BookStructureMethod,
 } from "./contracts/book.ts";
 
+/** Characters per token, the estimate the course section also uses. */
+export const BOOK_CHARS_PER_TOKEN = 4;
+
 // ─── normalization ─────────────────────────────────────────────────────────
 
 /** A normalized text and, for each of its UTF-16 units, the offset of the
@@ -54,12 +57,29 @@ export function normalizeBookText(input: string, options: { search?: boolean } =
 		}
 	};
 	let pendingSpace = -1;
-	const chars = [...input];
-	let offset = 0;
-	for (let i = 0; i < chars.length; i++) {
-		const ch = chars[i]!;
-		const at = offset;
-		offset += ch.length;
+	const search = options.search === true;
+	const length = input.length;
+	const codePointAt = (index: number) => String.fromCodePoint(input.codePointAt(index)!);
+	let i = 0;
+	while (i < length) {
+		const at = i;
+		const code = input.charCodeAt(i);
+		// Fast path (agent-selected, for whole books): printable ASCII other
+		// than the hyphen and the backtick passes through as itself, lowered
+		// for search. Everything else takes the general path below.
+		if (code > 0x20 && code < 0x7f && code !== 0x2d && code !== 0x60) {
+			if (pendingSpace >= 0) {
+				out.push(" ");
+				map.push(pendingSpace);
+				pendingSpace = -1;
+			}
+			out.push(search && code >= 0x41 && code <= 0x5a ? String.fromCharCode(code + 0x20) : input[i]!);
+			map.push(at);
+			i++;
+			continue;
+		}
+		const ch = codePointAt(i);
+		i += ch.length;
 		if (ch === "\u00AD") continue;
 		if (/\s/.test(ch)) {
 			if (out.length > 0 && pendingSpace < 0) pendingSpace = at;
@@ -73,17 +93,16 @@ export function normalizeBookText(input: string, options: { search?: boolean } =
 		if (piece === "-") {
 			// A hyphen between letters (possibly across a line break) drops out.
 			const before = out.length > 0 && pendingSpace < 0 && LETTER.test(out[out.length - 1]!);
-			let j = i + 1;
-			while (j < chars.length && /\s/.test(chars[j]!)) j++;
-			const after = j < chars.length && LETTER.test(chars[j]!);
+			let j = i;
+			while (j < length && /\s/.test(codePointAt(j))) j += codePointAt(j).length;
+			const after = j < length && LETTER.test(codePointAt(j));
 			if (before && after) {
 				// Skip the whitespace that followed the hyphen, too.
-				for (let k = i + 1; k < j; k++) offset += chars[k]!.length;
-				i = j - 1;
+				i = j;
 				continue;
 			}
 		}
-		if (options.search) {
+		if (search) {
 			piece = piece.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 			if (!piece) continue;
 		}
@@ -119,22 +138,35 @@ export function pageLooksGarbled(text: string): boolean {
 	if ((visible.match(/[\uFFFD\p{Co}]/gu) ?? []).length / visible.length > 0.1) return true;
 	const tokens = text.split(/\s+/).filter(Boolean);
 	const wordlike = tokens.filter((token) => {
-		const letters = token.match(/\p{L}/gu);
-		if (!letters) return false;
+		if (!/\p{L}/u.test(token)) return false;
 		// The vowel heuristic diagnoses Latin font soup, not other writing systems.
-		if (letters.every((letter) => /\p{Script=Latin}/u.test(letter))) {
-			return WORDLIKE.test(token) && /[aeiouyæøœ]/i.test(token.normalize("NFD").replace(/\p{M}/gu, ""));
+		if (!NON_LATIN_LETTER.test(token)) {
+			// Stripping accents can only add vowels (é → e), so the plain test comes first.
+			return WORDLIKE.test(token) && (VOWEL.test(token) || VOWEL.test(token.normalize("NFD").replace(/\p{M}/gu, "")));
 		}
 		return true;
 	}).length;
 	return wordlike / tokens.length < 0.4;
 }
 
+const NON_LATIN_LETTER = /(?!\p{Script=Latin})\p{L}/u;
+const VOWEL = /[aeiouyæøœ]/i;
+
+/** Pages judged (long enough) and pages garbled: the garbled-text rule's
+ *  counts, which a long book can sum over chunks of pages. */
+export function garbledCounts(pages: readonly string[]): { judged: number; garbled: number } {
+	const judged = pages.filter((text) => text.replace(/\s+/g, "").length >= 80);
+	return { judged: judged.length, garbled: judged.filter(pageLooksGarbled).length };
+}
+
+/** Garbled when most judged pages are. */
+export function countsLookGarbled(counts: { judged: number; garbled: number }): boolean {
+	return counts.judged > 0 && counts.garbled > counts.judged / 2;
+}
+
 /** A book's text is garbled when most of its judged pages are. */
 export function textLooksGarbled(pages: readonly string[]): boolean {
-	const judged = pages.filter((text) => text.replace(/\s+/g, "").length >= 80);
-	if (judged.length === 0) return false;
-	return judged.filter(pageLooksGarbled).length > judged.length / 2;
+	return countsLookGarbled(garbledCounts(pages));
 }
 
 // ─── structure candidates ──────────────────────────────────────────────────
@@ -503,6 +535,119 @@ export function chooseCandidate(candidates: readonly BookCandidate[]): BookCandi
 	return candidates.find((candidate) => candidate.confidence.level === "confident") ?? candidates[0];
 }
 
+// ─── the optional model contents pass (item 2) ─────────────────────────────
+
+/** One candidate heading line the contents pass reads. */
+export interface DigestLine {
+	block: number;
+	/** The page label (or number) the line is on, when the text has pages. */
+	page?: string;
+	/** Set in larger type: a heading block found by the converter. */
+	larger: boolean;
+	/** The line, shortened to DIGEST_LINE_CHARS. */
+	text: string;
+}
+
+export interface StructureDigest {
+	/** The lines kept, in book order. */
+	lines: DigestLine[];
+	/** Candidate lines left out to keep the digest under its cap. */
+	omitted: number;
+}
+
+/** Characters of one line in the digest. */
+const DIGEST_LINE_CHARS = 120;
+/** A paragraph this short (and of few words) may be a heading set as text. */
+const SHORT_LINE_CHARS = 80;
+const SHORT_LINE_WORDS = 12;
+const CHAPTER_WORD = /^(?:chapter|part|book|section|lecture|appendix|preface|introduction|conclusion|epilogue|prologue|foreword|afterword)\b/i;
+
+/** How a digest line reads: "[12] (p. 14, larger type) Chapter 2 Being". */
+export function digestLineText(line: DigestLine): string {
+	const notes = [line.page !== undefined ? `p. ${line.page}` : "", line.larger ? "larger type" : ""].filter(Boolean);
+	return `[${line.block}]${notes.length > 0 ? ` (${notes.join(", ")})` : ""} ${line.text}`;
+}
+
+/** Evenly spread lines (in their order) whose texts fit `budget` characters. */
+function spread(lines: readonly DigestLine[], budget: number): DigestLine[] {
+	const size = (line: DigestLine) => digestLineText(line).length + 1;
+	const total = lines.reduce((sum, line) => sum + size(line), 0);
+	if (total <= budget) return [...lines];
+	let count = Math.floor(lines.length * budget / total);
+	while (count > 0) {
+		const picked = Array.from({ length: count }, (_, i) => lines[Math.floor(i * lines.length / count)]!);
+		if (picked.reduce((sum, line) => sum + size(line), 0) <= budget) return picked;
+		count--;
+	}
+	return [];
+}
+
+/**
+ * The digest the optional contents pass reads (decision 9): candidate
+ * heading lines with their block ids and pages, never the whole book.
+ * Strong candidates are the converter's headings (larger type) and short
+ * lines that start like a chapter or a numbered section; weak ones are
+ * other short lines. Under the cap (about `capTokens`), strong lines are
+ * kept first and the rest spread evenly over the book.
+ */
+export function structureDigest(blocks: readonly BookBlock[], capTokens = 8_000): StructureDigest {
+	const strong: DigestLine[] = [];
+	const weak: DigestLine[] = [];
+	for (const block of blocks) {
+		const text = block.text.replace(/\s+/g, " ").trim();
+		if (!text || text.length > 150) continue;
+		const short = text.length <= SHORT_LINE_CHARS && wordCount(text) <= SHORT_LINE_WORDS;
+		const heading = block.kind === "heading";
+		const patterned = CHAPTER_WORD.test(text) || (short && NUMBERING.test(text));
+		if (!heading && !patterned && !short) continue;
+		const page = pageOf(block);
+		const line: DigestLine = {
+			block: block.id,
+			...(page !== undefined ? { page } : {}),
+			larger: heading,
+			text: text.length <= DIGEST_LINE_CHARS ? text : `${text.slice(0, DIGEST_LINE_CHARS - 1).trimEnd()}…`,
+		};
+		(heading || patterned ? strong : weak).push(line);
+	}
+	const budget = capTokens * BOOK_CHARS_PER_TOKEN;
+	const keptStrong = spread(strong, budget);
+	const used = keptStrong.reduce((sum, line) => sum + digestLineText(line).length + 1, 0);
+	const keptWeak = keptStrong.length === strong.length ? spread(weak, budget - used) : [];
+	const lines = [...keptStrong, ...keptWeak].sort((a, b) => a.block - b.block);
+	return { lines, omitted: strong.length + weak.length - lines.length };
+}
+
+/** A heading the contents pass chose: a digest block, its level and label. */
+export interface ModelHeading {
+	block: number;
+	level: number;
+	label: string;
+	title: string;
+}
+
+const MODEL_REASON = "The model chose these contents from the text's likely heading lines.";
+
+/**
+ * The `model` candidate from the contents pass's headings. Like the file's
+ * own contents, confident numbered paragraphs nest inside them. It is
+ * always unsure: the learner reviews it like any other candidate.
+ */
+export function modelCandidate(blocks: readonly BookBlock[], headings: readonly ModelHeading[]): BookCandidate | null {
+	const heads: Head[] = headings.map((heading) => ({
+		block: heading.block,
+		level: heading.level,
+		label: heading.label,
+		title: heading.title,
+		kind: kindForTitle(heading.title),
+	}));
+	const run = findNumberedRun(blocks);
+	const numbered = run.entries.length >= 10 && numberedConfidence(run, wordOffsets(blocks)).level === "confident";
+	const deepest = Math.max(1, ...heads.map((head) => head.level));
+	const nodes = nodesFromHeads(numbered ? [...heads, ...paragraphHeads(run, deepest + 1)] : heads, blocks);
+	if (nodes.length === 0) return null;
+	return { method: "model", confidence: { level: "unsure", reasons: [MODEL_REASON] }, description: describe("model", nodes), nodes };
+}
+
 // ─── locations ──────────────────────────────────────────────────────────────
 
 export type BookLocation =
@@ -655,9 +800,6 @@ export function resolveBookLocation(nodes: readonly BookNode[], blocks: readonly
 
 // ─── outline and detail texts ──────────────────────────────────────────────
 
-/** Characters per token, the estimate the course section also uses. */
-const CHARS_PER_TOKEN = 4;
-
 function outlineLine(node: BookNode, hidden: number, withTerms: boolean): string {
 	const indent = "  ".repeat(node.level - 1);
 	const summary = node.summary ? ` — ${node.summary}` : "";
@@ -694,7 +836,7 @@ function renderToDepth(nodes: readonly BookNode[], depth: number, withTerms: boo
 /** The deepest rendering that fits the budget; at worst the top level, cut short. */
 function fitted(nodes: readonly BookNode[], budgetTokens: number, withTerms: boolean): string {
 	if (nodes.length === 0) return "";
-	const budget = budgetTokens * CHARS_PER_TOKEN;
+	const budget = budgetTokens * BOOK_CHARS_PER_TOKEN;
 	// A selected paragraph and a selected chapter are both roots, regardless
 	// of their levels in the whole book.
 	const depths = new Map<string, number>();

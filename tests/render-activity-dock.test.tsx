@@ -111,6 +111,21 @@ describe("activity dock pure layer", () => {
 		assert.match(html, /aria-label="End Handoff writer in Handoff · Linear maps"/);
 	});
 
+	it("book writers (fork plan 05) show as \"Book map\" and \"Book contents\" rows with distinct ids, live cost and a stop control", () => {
+		const row = (kind: "map" | "contents", title: string, activity: string) => ({
+			id: `book_a:${kind}`, bookId: "book_a", kind, title, createdAt: new Date(NOW - 5_000).toISOString(), activity, costUsd: 0.01, contextLimit: null,
+		});
+		const feed: ActivityFeed = { jobs: [], extractions: [], bookWriters: [row("map", "Book map · Spirit", "2 of 7 sections"), row("contents", "Book contents · Spirit", "Finding the contents")] };
+		const blobs = toBlobs(feed);
+		assert.deepEqual(blobs.map((blob) => [blob.id, blob.process, blob.chatId]), [["book_a:map", "book-map-writer", undefined], ["book_a:contents", "book-contents-writer", undefined]], "one book can run both writers; each row aborts its own");
+		const html = renderToStaticMarkup(<ActivitySection feed={feed} />);
+		assert.match(html, /data-testid="activity-blob-book-map-writer"/);
+		assert.match(html, /data-testid="activity-blob-book-contents-writer"/);
+		assert.match(html, /2 of 7 sections/);
+		assert.match(html, /aria-label="End Book map writer in Book map · Spirit"/);
+		assert.match(html, /aria-label="End Contents finder in Book contents · Spirit"/);
+	});
+
 	it("per-chunk jobs (owner, 2026-09-28): one source, N rows — unique ids (React keys), one chatId, part-suffixed titles", () => {
 		const rows = [
 			{ id: "src_a#1", chatId: "src_a", part: { i: 1, n: 2 }, title: "notes.md · 1/2", phase: "extracting", startedAt: NOW - 1000 },

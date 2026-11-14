@@ -69,7 +69,9 @@ export type ModelRole =
 	// Fork plan 03: writes on-demand study notes from a session (Strong slot).
 	| "noteWriter"
 	// Fork plan 04: writes a completed course unit's handoff observations (Strong slot).
-	| "handoffWriter";
+	| "handoffWriter"
+	// Fork plan 05: writes a library book's map summaries and the optional contents pass (Cheap slot).
+	| "bookMapper";
 
 /**
  * The LIVE graph store (src/store/graph.ts) — owned by the app's extraction

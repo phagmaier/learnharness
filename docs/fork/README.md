@@ -208,6 +208,14 @@ The approved repair plan includes focused regression coverage, the required qual
 
 *Human, repair implementation:* when a hyphenated range has multiple valid endpoint pairs, refuse it with `"<input>" matches several ranges. Use section ids with "to".` rather than selecting one or reusing the unknown-location message.
 
+### Books item 2 decisions — 2026-11-14, human
+
+The optional model contents pass uses the agent's drafted prompt as written (`BOOK_STRUCTURE_PROMPT` in `src/agent/subagents/book-mapper.ts`). It shows in Background agents as "Book contents · <title>" ("Finding the contents"), with its live cost and Stop, like every other model worker; a stopped pass fails as "Stopped" and the review screen keeps the other methods. Details and agent-selected choices: [plan 05, item 2](plans/05-books.md#item-2-2026-11-14).
+
+*Human, item 2 review follow-up:* fix all four findings: budget map requests against the production provider's context headroom, size the contents digest and estimate for the selected model, apply a replacement model candidate even when its method is unchanged, and keep Stop available after a writer retry. Preserve dependencies, storage formats and existing wording; no commit was requested. For a model that cannot fit even one useful request and its answer, the human approved failing before a provider call with: "This model's context or output limit is too small for the book writer's request and answer. Choose a model with a larger context or output limit."
+
+*Agent-selected implementation:* request sizing counts the complete provider-facing prompt and tool schema and reserves room for the submitted answer. Contents estimates and execution share the same prepared digest. Candidate comparison excludes summaries and terms, so accepting unchanged contents keeps the existing map work. Stop state belongs to the writer run, while the server's abort id stays unchanged.
+
 ## Feature designs
 
 ### Courses, units, and notes
@@ -258,7 +266,7 @@ The approved repair plan includes focused regression coverage, the required qual
 
 ### Books
 
-**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs; items 2–8 remain. Built right after course phase 1 (see build order below).
+**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs, and item 2 (the map writer and the optional contents pass) is implemented; items 3–8 remain. Built right after course phase 1 (see build order below).
 
 **Problem (human):** to study a specific text (e.g. Hegel's *Phenomenology of Spirit*), the learner wants to add the book. The whole book should never sit in context, but it should be reachable when needed.
 

@@ -28,6 +28,7 @@ import { jobCost } from "./pricing.ts";
 import { pluginWorkerActivities, type PluginWorkerActivity } from "./plugin-worker-activity.ts";
 import { noteWriterActivities, type NoteWriterActivity } from "./notes.ts";
 import { handoffWriterActivities, type HandoffWriterActivity } from "./handoffs.ts";
+import { bookWriterActivities, type BookWriterActivity } from "./book-maps.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
@@ -53,6 +54,12 @@ export interface ActivityNoteWriter extends NoteWriterActivity {
 
 /** A running handoff writer (fork plan 04), with its live cost. */
 export interface ActivityHandoffWriter extends HandoffWriterActivity {
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
+/** A running book map writer or contents pass (fork plan 05), with its live cost. */
+export interface ActivityBookWriter extends BookWriterActivity {
 	costUsd: number | null;
 	contextLimit: number | null;
 }
@@ -92,6 +99,7 @@ export function activityFeed(): {
 	pluginWorkers: ActivityPluginWorker[];
 	noteWriters: ActivityNoteWriter[];
 	handoffWriters: ActivityHandoffWriter[];
+	bookWriters: ActivityBookWriter[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
 } {
@@ -141,6 +149,10 @@ export function activityFeed(): {
 		.map((handoff) => ({ ...handoff, costUsd: jobCost(handoff),
 			contextLimit: handoff.usage ? (limits.get(handoff.usage.model) ?? null) : null }))
 		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	const bookWriters: ActivityBookWriter[] = bookWriterActivities()
+		.map((writer) => ({ ...writer, costUsd: jobCost(writer),
+			contextLimit: writer.usage ? (limits.get(writer.usage.model) ?? null) : null }))
+		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
@@ -148,6 +160,7 @@ export function activityFeed(): {
 		pluginWorkers,
 		noteWriters,
 		handoffWriters,
+		bookWriters,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		graphRevision: graphRevision(),
 	};

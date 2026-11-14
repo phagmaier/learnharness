@@ -23,7 +23,8 @@ declare const BACKGROUND_MODEL_ROLES: readonly [
     "auditor",
     "sideQuestion",
     "noteWriter",
-    "handoffWriter"
+    "handoffWriter",
+    "bookMapper"
 ];
 ```
 

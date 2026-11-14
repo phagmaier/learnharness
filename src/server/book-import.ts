@@ -18,7 +18,7 @@
 import * as path from "node:path";
 import { DOMParser, parseHTML } from "linkedom";
 import type { BookBlock, BookFormat } from "../core/contracts.ts";
-import { normalizeBookText, textLooksGarbled, type SourceOutlineEntry } from "../core/book.ts";
+import { countsLookGarbled, garbledCounts, normalizeBookText, type SourceOutlineEntry } from "../core/book.ts";
 import { pageLines, type PdfLine, type PdfPageLines } from "../agent/subagents/pdf-markdown.ts";
 import { withPdfDocument } from "../agent/subagents/pdf-ops.ts";
 import { openZip, ZipError, type ZipReader } from "./unzip.ts";
@@ -229,16 +229,30 @@ async function convertPdf(bytes: Uint8Array, options: ConvertOptions): Promise<C
 			}
 			const textPages = pages.filter((page): page is TextPage => page.kind === "text");
 			if (textPages.length === 0) throw new BookImportRefusal(BOOK_REFUSALS.noTextLayer);
-			if (textLooksGarbled(textPages.map((page) => page.lines.map((line) => line.text).join("\n")))) throw new BookImportRefusal(BOOK_REFUSALS.garbled);
+			// The whole-book passes below yield between steps, so a long book
+			// doesn't hold the server (the plan's performance check).
+			await yieldToEventLoop();
+			const counts = { judged: 0, garbled: 0 };
+			for (let at = 0; at < textPages.length; at += 32) {
+				const chunk = garbledCounts(textPages.slice(at, at + 32).map((page) => page.lines.map((line) => line.text).join("\n")));
+				counts.judged += chunk.judged;
+				counts.garbled += chunk.garbled;
+				await yieldToEventLoop();
+			}
+			if (countsLookGarbled(counts)) throw new BookImportRefusal(BOOK_REFUSALS.garbled);
 			const kept = dropMargins(textPages);
+			await yieldToEventLoop();
 			const blocks: Omit<BookBlock, "id">[] = [];
 			const startsAt: number[] = [];
 			let priorLine: PdfLine | null = null;
-			for (const page of textPages) {
+			for (const [index, page] of textPages.entries()) {
 				const label = labels?.[page.number - 1];
 				priorLine = addPage(blocks, page, kept.get(page.number) ?? [], label && label !== String(page.number) ? label : undefined, startsAt, priorLine);
+				if (index % 16 === 15) await yieldToEventLoop();
 			}
+			await yieldToEventLoop();
 			resolveHyphens(blocks);
+			await yieldToEventLoop();
 			const nonEmpty = blocks.filter((block) => block.text.trim());
 			if (nonEmpty.length === 0) throw new BookImportRefusal(BOOK_REFUSALS.noTextLayer);
 			const finished = finish(blocks);

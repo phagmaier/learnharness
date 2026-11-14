@@ -56,6 +56,13 @@ Course phase 1 ([plan 04](../../../docs/fork/plans/04-courses-and-units.md)) kee
 
 The wording is the plan's approved text. In this fork, changing it is a product decision for the human ([decision authority](../../../AGENTS.md#decision-authority)).
 
+## Book prompts (fork)
+
+Books ([plan 05](../../../docs/fork/plans/05-books.md)) keep their prompts fixed in code too, with no Settings → Prompts segment and no override.
+
+- **Map writer** (`BOOK_MAP_SECTIONS_PROMPT` and `BOOK_MAP_PARTS_PROMPT` in [`subagents/book-mapper.ts`](../subagents/book-mapper.ts)): the system prompts for leaf sections and for parts summarized from their subsections, with the user-message format for batches and for a long section read in windows.
+- **Contents pass** (`BOOK_STRUCTURE_PROMPT`, same file): the optional model pass over a digest of candidate heading lines, with its user-message format.
+
 ## Editing fragments
 
 - Put agent-specific doctrine in that agent's directory. Use `shared/` only for guidance appropriate to every agent that composes it; check practice's explicit allowlist.

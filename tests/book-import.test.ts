@@ -369,6 +369,39 @@ describe("importing through the routes", () => {
 		assert.equal(book.import.status, "ready");
 	});
 
+	it("accepts replacement model contents without discarding summaries on an unchanged acceptance", async () => {
+		const accepted: string[] = [];
+		books.bookServiceSeams.contentsAccepted = (id) => accepted.push(id);
+		const record = await imported("replacement.md", new TextEncoder().encode("# Chapter 1 First\n\nFirst body.\n\n# Chapter 2 Second\n\nSecond body."));
+		bookStore.update(record.id, (current) => ({ ...current, words: 30_000 }));
+		const originalCandidates = bookStore.readCandidates(record.id)!.candidates;
+		const confidence = { level: "unsure" as const, reasons: ["Model contents."] };
+		const firstNode = { id: "n0", label: "Chapter 1", title: "First", kind: "chapter" as const, level: 1, firstBlock: 0, lastBlock: 3 };
+		const selectModel = () => contentsRoute.PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ method: "model" }) }), params(record.id));
+		bookStore.writeCandidates(record.id, { candidates: [...originalCandidates, { method: "model", confidence, description: "1 entry", nodes: [firstNode] }] });
+		assert.equal((await selectModel()).status, 200);
+		const summarized = { ...firstNode, summary: "The first chapter introduces the topic.", terms: ["topic"] };
+		bookStore.writeMap(record.id, { nodes: [summarized] });
+		bookStore.update(record.id, (current) => ({ ...current, mapWriter: { status: "ready", done: 1, total: 1 } }));
+
+		assert.equal((await selectModel()).status, 200);
+		assert.deepEqual(bookStore.readMap(record.id)!.nodes, [summarized]);
+		assert.equal(bookStore.get(record.id)!.mapWriter.status, "ready");
+		assert.equal(accepted.length, 1);
+
+		// A new pass can correct just a title, or choose a different span.
+		for (const replacement of [
+			{ ...firstNode, title: "Corrected first chapter" },
+			{ ...firstNode, label: "Chapter 2", title: "Second", firstBlock: 2 },
+		]) {
+			bookStore.writeCandidates(record.id, { candidates: [...originalCandidates, { method: "model", confidence, description: "1 entry", nodes: [replacement] }] });
+			assert.equal((await selectModel()).status, 200);
+			assert.deepEqual(bookStore.readMap(record.id)!.nodes, [replacement]);
+			assert.deepEqual(bookStore.get(record.id)!.mapWriter, { status: "waiting", done: 0, total: 0 });
+		}
+		assert.equal(accepted.length, 3, "only a changed candidate restarts the map writer");
+	});
+
 	for (const damage of ["newer", "damaged"] as const) {
 		it(`refuses contents acceptance and switching without changing a ${damage} map`, async () => {
 			const accepted: string[] = [];

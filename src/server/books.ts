@@ -8,9 +8,12 @@
  *   shown structure or switches to another candidate;
  * - a broken file is refused with the reason, before or during conversion.
  *
- * Accepting contents starts the map writer (item 2) unless the book is
- * short. An import left "importing" by a closed app reads as interrupted,
- * and Try again reconverts the stored original.
+ * Accepting contents starts the map writer (item 2, src/server/
+ * book-maps.ts) unless the book is short; switching them discards a
+ * running writer and starts again on the new map. An import left
+ * "importing" by a closed app reads as interrupted, and Try again
+ * reconverts the stored original; a writer left "writing" reads as
+ * interrupted too, and its Try again continues with what's left.
  */
 import { createHash } from "node:crypto";
 import * as path from "node:path";
@@ -18,12 +21,25 @@ import {
 	chooseCandidate,
 	SHORT_BOOK_WORDS,
 	structureCandidates,
+	structureDigest,
 	wordCount,
 } from "../core/book.ts";
-import type { BookCandidate, BookMap, BookRecord, BookSummary } from "../core/contracts.ts";
+import type { BookBlock, BookCandidate, BookMap, BookRecord, BookSummary } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
+import { modelsNotConfigured } from "../core/settings.ts";
+import { prepareStructurePass, type PreparedStructurePass } from "../agent/subagents/book-mapper.ts";
+import type { PiEngine } from "../agent/models.ts";
 import { bookStore, BookUnreadableError, newBookId } from "../store/books.ts";
 import { BOOK_REFUSALS, BookImportRefusal, bookFormat, convertBook, MAX_BOOK_BYTES, probeBook } from "./book-import.ts";
+import {
+	bookMapperEngine,
+	bookMapperModel,
+	discardBookWriters,
+	interruptedWriters,
+	isBookWriterRunning,
+	startBookContentsWriter,
+	startBookMapWriter,
+} from "./book-maps.ts";
 
 export { BookUnreadableError } from "../store/books.ts";
 export { MAX_BOOK_BYTES } from "./book-import.ts";
@@ -36,10 +52,17 @@ export const isBookRefusal = (value: unknown): value is BookRefusal => typeof va
 export const BOOK_INTERRUPTED = "The import was interrupted.";
 export const BOOK_IMPORT_FAILED = "The import failed. Try again.";
 
-/** Seams: item 2 starts the map writer here; tests observe it. */
+/** Seams: accepted contents start the map writer; tests observe it. */
 export const bookServiceSeams = {
-	contentsAccepted: (_bookId: string): void => {},
+	contentsAccepted: (bookId: string): void => {
+		// The contents are accepted either way; a writer that can't start
+		// shows as failed on the book, or is retried with Try again.
+		try { startBookMapWriter(bookId); }
+		catch (error) { console.error(`[books] could not start the map writer of ${bookId}:`, error); }
+	},
 };
+
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 interface RunningImport { done: number; total: number; lastEmit: number }
 interface BooksGlobal { __lhRunningBookImports?: Map<string, RunningImport> }
@@ -56,7 +79,7 @@ export function isImportRunning(bookId: string): boolean {
 function readRecord(bookId: string): BookRecord | BookRefusal {
 	try {
 		const record = bookStore.get(bookId);
-		return record ? settleInterruptedImport(record) : refusal(404, "Unknown book");
+		return record ? settleInterrupted(record) : refusal(404, "Unknown book");
 	} catch (error) {
 		if (error instanceof BookUnreadableError) return refusal(409, error.message);
 		if (error instanceof Error && error.message.startsWith("Invalid book id")) return refusal(404, "Unknown book");
@@ -64,12 +87,16 @@ function readRecord(bookId: string): BookRecord | BookRefusal {
 	}
 }
 
-/** An import left "importing" by a closed app: no conversion runs for it here. */
-function settleInterruptedImport(record: BookRecord): BookRecord {
-	if (record.import.status !== "importing" || isImportRunning(record.id)) return record;
-	return bookStore.update(record.id, (current) => current.import.status === "importing" && !isImportRunning(current.id)
-		? { ...current, import: { status: "failed", error: BOOK_INTERRUPTED } }
-		: current) ?? record;
+/** An import or a writer left running by a closed app: none runs for it
+ *  here, so it reads as interrupted. */
+function settleInterrupted(record: BookRecord): BookRecord {
+	const importStale = record.import.status === "importing" && !isImportRunning(record.id);
+	if (!importStale && !interruptedWriters(record)) return record;
+	return bookStore.update(record.id, (current) => ({
+		...current,
+		...(current.import.status === "importing" && !isImportRunning(current.id) ? { import: { status: "failed", error: BOOK_INTERRUPTED } } : {}),
+		...interruptedWriters(current),
+	})) ?? record;
 }
 
 /** The map writer's starting state once the contents are accepted. */
@@ -95,11 +122,16 @@ function convert(record: BookRecord): void {
 					}
 				},
 			});
+			// Yields between the whole-book steps keep the server responsive
+			// (the plan's performance check).
+			await yieldToEventLoop();
 			const candidates = structureCandidates({ format: record.format, blocks: converted.blocks, ...(converted.outline ? { outline: converted.outline } : {}) });
 			const chosen = chooseCandidate(candidates);
 			if (!chosen) throw new BookImportRefusal(BOOK_REFUSALS.empty);
 			const words = converted.blocks.reduce((sum, block) => sum + wordCount(block.text), 0);
+			await yieldToEventLoop();
 			bookStore.writeText(record.id, { blocks: converted.blocks });
+			await yieldToEventLoop();
 			bookStore.writeCandidates(record.id, { candidates });
 			bookStore.writeMap(record.id, { nodes: chosen.nodes });
 			const confident = chosen.confidence.level === "confident";
@@ -212,7 +244,7 @@ function summaryOf(record: BookRecord): BookSummary & { progress?: BookImportPro
 /** The library: every readable book, newest first. */
 export function listBooks(): { books: ReturnType<typeof summaryOf>[]; unreadable: string[] } {
 	const { books, unreadable } = bookStore.list();
-	return { books: books.map((book) => summaryOf(settleInterruptedImport(book))), unreadable };
+	return { books: books.map((book) => summaryOf(settleInterrupted(book))), unreadable };
 }
 
 /** One book with its current map (absent until the import finishes). */
@@ -260,6 +292,19 @@ export function bookContents(bookId: string): { current: BookRecord["structure"]
 	}
 }
 
+/** Summaries are not contents: accepting an unchanged model candidate
+ *  must retain the summaries already written for it. */
+function sameContents(a: BookMap["nodes"], b: BookMap["nodes"]): boolean {
+	return a.length === b.length && a.every((node, i) => {
+		const other = b[i]!;
+		return node.id === other.id && node.parentId === other.parentId
+			&& node.label === other.label && node.title === other.title
+			&& node.kind === other.kind && node.level === other.level
+			&& node.firstBlock === other.firstBlock && node.lastBlock === other.lastBlock
+			&& node.pages?.from === other.pages?.from && node.pages?.to === other.pages?.to;
+	});
+}
+
 /**
  * The learner's "Looks right" (no method: accept the shown contents) or
  * "Use these" (a method: switch to that candidate and accept it). Starts
@@ -272,14 +317,22 @@ export function acceptBookContents(bookId: string, method?: unknown): BookRecord
 	if (method !== undefined && typeof method !== "string") return refusal(400, "Invalid method");
 	// Acceptance must honor the same map version/damage guard as a read,
 	// including when switching would otherwise replace an unreadable map.
-	try { bookStore.readMap(bookId); }
+	let map: BookMap | null;
+	try { map = bookStore.readMap(bookId); }
 	catch (error) { if (error instanceof BookUnreadableError) return refusal(409, error.message); throw error; }
 	let chosen: BookCandidate | undefined;
-	if (method !== undefined && method !== record.structure) {
-		try { chosen = bookStore.readCandidates(bookId)?.candidates.find((candidate) => candidate.method === method); }
+	if (method !== undefined && (method !== record.structure || method === "model")) {
+		let candidate: BookCandidate | undefined;
+		try { candidate = bookStore.readCandidates(bookId)?.candidates.find((entry) => entry.method === method); }
 		catch (error) { if (error instanceof BookUnreadableError) return refusal(409, error.message); throw error; }
-		if (!chosen) return refusal(400, "This book has no such contents.");
-		bookStore.writeMap(bookId, { nodes: chosen.nodes });
+		if (!candidate) return refusal(400, "This book has no such contents.");
+		if (method !== record.structure || !map || !sameContents(map.nodes, candidate.nodes)) {
+			chosen = candidate;
+			// A new pass can replace the model candidate without changing
+			// its method. Its old writer belongs to the old map either way.
+			discardBookWriters(bookId, ["map"]);
+			bookStore.writeMap(bookId, { nodes: chosen.nodes });
+		}
 	}
 	const words = record.words ?? 0;
 	const next = bookStore.update(bookId, (current) => ({
@@ -293,4 +346,80 @@ export function acceptBookContents(bookId: string, method?: unknown): BookRecord
 	if (!next) return refusal(404, "Unknown book");
 	if (chosen || record.mapWriter.status === "waiting") bookServiceSeams.contentsAccepted(bookId);
 	return next;
+}
+
+/** "Try again" for the map writer: continues with the sections left. */
+export function retryBookMapWriter(bookId: string): BookRecord | BookRefusal {
+	const record = readRecord(bookId);
+	if (isBookRefusal(record)) return record;
+	if (record.import.status !== "ready" || !record.contentsAccepted) return refusal(409, "Accept the book's contents first.");
+	if (isBookWriterRunning(bookId, "map")) return refusal(409, "The map is already being written.");
+	if (record.mapWriter.status === "ready") return refusal(409, "The map is already written.");
+	if (record.mapWriter.status === "not-needed") return refusal(409, "This book is short: it needs no map.");
+	let engine;
+	try { engine = bookMapperEngine(); }
+	catch (error) { return refusal(503, error instanceof Error ? error.message : String(error)); }
+	if (!engine) return refusal(503, modelsNotConfigured(["cheap"]).error);
+	try {
+		return startBookMapWriter(bookId, engine) ?? refusal(404, "Unknown book");
+	} catch (error) {
+		if (error instanceof BookUnreadableError) return refusal(409, error.message);
+		throw error;
+	}
+}
+
+const NO_HEADING_LINES = "This book has no lines that look like headings.";
+
+/** The contents pass's digest, when the book can have one. */
+interface ContentsPassInput extends PreparedStructurePass {
+	record: BookRecord;
+	blocks: BookBlock[];
+	engine: PiEngine | undefined;
+}
+
+function contentsPassInput(bookId: string): ContentsPassInput | BookRefusal {
+	const record = readRecord(bookId);
+	if (isBookRefusal(record)) return record;
+	if (record.import.status !== "ready" && record.import.status !== "review") return refusal(409, "This book's import hasn't finished.");
+	let text;
+	try { text = bookStore.readText(bookId); }
+	catch (error) { if (error instanceof BookUnreadableError) return refusal(409, error.message); throw error; }
+	if (!text) return refusal(409, "This book's text can't be read.");
+	let engine;
+	try {
+		engine = bookMapperEngine();
+		const prepared = prepareStructurePass({
+			bookTitle: record.title,
+			...(record.author ? { author: record.author } : {}),
+			blocks: text.blocks.length,
+			digest: structureDigest(text.blocks),
+			engine,
+		});
+		if (prepared.digest.lines.length === 0) return refusal(409, NO_HEADING_LINES);
+		return { record, blocks: text.blocks, engine, ...prepared };
+	} catch (error) {
+		return refusal(503, error instanceof Error ? error.message : String(error));
+	}
+}
+
+/** What the contents pass would cost: "about <n>k tokens on <model>". */
+export function bookContentsPassEstimate(bookId: string): { tokens: number; lines: number; model: { provider: string; id: string } | null } | BookRefusal {
+	const input = contentsPassInput(bookId);
+	if (isBookRefusal(input)) return input;
+	return { tokens: input.tokens, lines: input.digest.lines.length, model: bookMapperModel() };
+}
+
+/** The learner's "Find the contents with the model": its result becomes
+ *  the `model` candidate, reviewed like any other. */
+export function runBookContentsPass(bookId: string): BookRecord | BookRefusal {
+	const input = contentsPassInput(bookId);
+	if (isBookRefusal(input)) return input;
+	if (isBookWriterRunning(bookId, "contents")) return refusal(409, "The contents are already being found.");
+	if (!input.engine) return refusal(503, modelsNotConfigured(["cheap"]).error);
+	try {
+		return startBookContentsWriter(input.record, input.engine, input) ?? refusal(404, "Unknown book");
+	} catch (error) {
+		if (error instanceof BookUnreadableError) return refusal(409, error.message);
+		throw error;
+	}
 }

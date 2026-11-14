@@ -63,6 +63,9 @@ export const BACKGROUND_MODEL_ROLES = [
 	// Courses (fork plan 04): the handoff writer, likewise Strong-slot and
 	// schema-level only (agent.models.handoffWriter).
 	"handoffWriter",
+	// Books (fork plan 05): the book map writer, Cheap-slot and likewise
+	// schema-level only (agent.models.bookMapper).
+	"bookMapper",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -342,6 +345,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	sideQuestion: "strong", // the conversation chain, like prober/teacher (resolveSideQuestionSpec)
 	noteWriter: "strong", // fork plan 03: notes are written by the teaching tier
 	handoffWriter: "strong", // fork plan 04: unit handoffs, likewise
+	bookMapper: "cheap", // fork plan 05: book map summaries and the contents pass
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

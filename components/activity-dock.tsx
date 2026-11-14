@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIcon, BotIcon, ClipboardCheckIcon, FileTextIcon, NotebookPenIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
+import { ActivityIcon, BookOpenIcon, BotIcon, ClipboardCheckIcon, FileTextIcon, ListTreeIcon, NotebookPenIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
@@ -110,6 +110,21 @@ export interface FeedHandoffWriter {
 	contextLimit: number | null;
 }
 
+/** A running book map writer or contents pass (fork plan 05):
+ *  "Book map · <title>" or "Book contents · <title>". */
+export interface FeedBookWriter {
+	/** "<bookId>:map" or "<bookId>:contents", the abort id. */
+	id: string;
+	bookId: string;
+	kind: "map" | "contents";
+	title: string;
+	createdAt: string;
+	activity: string;
+	usage?: FeedUsage;
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
 export interface ActivityFeed {
 	jobs: FeedJob[];
 	/** Optional for older payloads and consumers; current server always sends it. */
@@ -118,10 +133,12 @@ export interface ActivityFeed {
 	noteWriters?: FeedNoteWriter[];
 	/** Optional like noteWriters; current server always sends it. */
 	handoffWriters?: FeedHandoffWriter[];
+	/** Optional like noteWriters; current server always sends it. */
+	bookWriters?: FeedBookWriter[];
 	extractions: FeedExtraction[];
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], noteWriters: [], handoffWriters: [], extractions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], noteWriters: [], handoffWriters: [], bookWriters: [], extractions: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -158,7 +175,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], noteWriters: data.noteWriters ?? [], handoffWriters: data.handoffWriters ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], noteWriters: data.noteWriters ?? [], handoffWriters: data.handoffWriters ?? [], bookWriters: data.bookWriters ?? [], extractions: data.extractions ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -218,7 +235,9 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "plugin-worker" | "note-writer" | "handoff-writer" | "extraction";
+	/** Client-local run identity when the server abort id is reused. */
+	runKey?: string;
+	process: "job" | "plugin-worker" | "note-writer" | "handoff-writer" | "book-map-writer" | "book-contents-writer" | "extraction";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -330,6 +349,21 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			steps: handoff.usage?.steps,
 		});
 	}
+	for (const writer of feed.bookWriters ?? []) {
+		const last = writer.usage?.lastStep;
+		blobs.push({
+			id: writer.id, process: writer.kind === "map" ? "book-map-writer" : "book-contents-writer", title: writer.title,
+			runKey: JSON.stringify([writer.id, writer.createdAt]),
+			startedAt: Date.parse(writer.createdAt) || 0,
+			cost: writer.costUsd ?? null,
+			context: writer.contextLimit !== null && last?.inputTokens !== undefined
+				? { used: last.inputTokens + (last.outputTokens ?? 0) + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0), limit: writer.contextLimit }
+				: null,
+			activity: writer.activity,
+			model: writer.usage?.model,
+			steps: writer.usage?.steps,
+		});
+	}
 	for (const run of feed.extractions) {
 		blobs.push({
 			id: run.id,
@@ -377,7 +411,7 @@ const KIND_ICON: Record<JobKind, typeof SearchIcon> = {
 	plugin: BotIcon,
 };
 
-/** Abort states per blob id: pending (fired) / failed (backend absent). */
+/** Abort states per local run key: pending (fired) / failed (backend absent). */
 type AbortState = "pending" | "failed";
 
 export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
@@ -399,7 +433,8 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 
 	const abort = useCallback(async (blob: ActivityBlob) => {
 		const { setAbortStates: set } = abortRef.current;
-		set((s) => ({ ...s, [blob.id]: "pending" }));
+		const runKey = blob.runKey ?? blob.id;
+		set((s) => ({ ...s, [runKey]: "pending" }));
 		try {
 			const res = await fetch("/api/activity/abort", {
 				method: "POST",
@@ -417,7 +452,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 				if (res.status === 404 || res.status === 409) {
 					abortRef.current.refresh();
 					set((s) => {
-						const { [blob.id]: _drop, ...rest } = s;
+						const { [runKey]: _drop, ...rest } = s;
 						return rest;
 					});
 					return;
@@ -426,7 +461,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 			}
 			abortRef.current.refresh();
 		} catch {
-			set((s) => ({ ...s, [blob.id]: "failed" }));
+			set((s) => ({ ...s, [runKey]: "failed" }));
 		}
 	}, []);
 
@@ -455,7 +490,7 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 							now={now}
 							detailOpen={openBlob === blob.id}
 							onToggleDetail={() => setOpenBlob((id) => (id === blob.id ? null : blob.id))}
-							abortState={abortStates[blob.id]}
+							abortState={abortStates[blob.runKey ?? blob.id]}
 							onAbort={() => void abort(blob)}
 						/>
 					))}
@@ -481,7 +516,7 @@ function ActivityBlobRow({
 	abortState: AbortState | undefined;
 	onAbort: () => void;
 }) {
-	const Icon = blob.process === "extraction" ? WaypointsIcon : blob.process === "note-writer" ? NotebookPenIcon : blob.process === "handoff-writer" ? ClipboardCheckIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
+	const Icon = blob.process === "extraction" ? WaypointsIcon : blob.process === "note-writer" ? NotebookPenIcon : blob.process === "handoff-writer" ? ClipboardCheckIcon : blob.process === "book-map-writer" ? BookOpenIcon : blob.process === "book-contents-writer" ? ListTreeIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
 		blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
@@ -489,6 +524,10 @@ function ActivityBlobRow({
 				? "Note writer"
 			: blob.process === "handoff-writer"
 				? "Handoff writer"
+			: blob.process === "book-map-writer"
+				? "Book map writer"
+			: blob.process === "book-contents-writer"
+				? "Contents finder"
 			: blob.jobKind === "research"
 				? "Researcher"
 				: blob.jobKind === "demo"

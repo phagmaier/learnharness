@@ -242,7 +242,7 @@ describe("sanitizeUserSettings", () => {
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
 	});
 
-	it("BACKGROUND_MODEL_ROLES matches the eight override roles (practice trio deleted 2026-10-04, sideQuestion added, noteWriter added by fork plan 03, handoffWriter by fork plan 04)", () => {
+	it("BACKGROUND_MODEL_ROLES matches the nine override roles (practice trio deleted 2026-10-04, sideQuestion added, noteWriter added by fork plan 03, handoffWriter by fork plan 04, bookMapper by fork plan 05)", () => {
 		assert.deepEqual([...BACKGROUND_MODEL_ROLES], [
 			"researcher",
 			"demoBuilder",
@@ -252,6 +252,7 @@ describe("sanitizeUserSettings", () => {
 			"sideQuestion",
 			"noteWriter",
 			"handoffWriter",
+			"bookMapper",
 		]);
 	});
 });

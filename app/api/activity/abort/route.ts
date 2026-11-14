@@ -1,6 +1,6 @@
 /**
  * POST /api/activity/abort — the dock's END/ABORT control, uniform across
- * process kinds (user-decided contract): body {kind: "job"|"plugin-worker"|"note-writer"|"handoff-writer"|"extraction"|"turn", id}
+ * process kinds (user-decided contract): body {kind: "job"|"plugin-worker"|"note-writer"|"handoff-writer"|"book-map-writer"|"book-contents-writer"|"extraction"|"turn", id}
  * where id is the jobId for sub-agent jobs, the chatId for extraction runs
  * (the pipeline registry is chat-keyed), and the chatId for turns
  * (background-turn wave, 2026-09-25: a running turn is a background
@@ -17,7 +17,7 @@
  * Extraction abort is idempotent by design (aborting with nothing in
  * flight is success — the blob is gone either way) -> 200.
  */
-import { abortExtraction, abortHandoffWriterActivity, abortJob, abortNoteWriterActivity, abortPluginWorkerActivity, abortTurn } from "@/src/server";
+import { abortBookWriterActivity, abortExtraction, abortHandoffWriterActivity, abortJob, abortNoteWriterActivity, abortPluginWorkerActivity, abortTurn } from "@/src/server";
 
 export async function POST(req: Request) {
 	let body: unknown;
@@ -27,8 +27,8 @@ export async function POST(req: Request) {
 		return Response.json({ error: "Invalid JSON body" }, { status: 400 });
 	}
 	const { kind, id } = (body ?? {}) as { kind?: string; id?: string };
-	if ((kind !== "job" && kind !== "plugin-worker" && kind !== "note-writer" && kind !== "handoff-writer" && kind !== "extraction" && kind !== "turn") || typeof id !== "string" || id === "") {
-		return Response.json({ error: 'Body must be {kind: "job"|"plugin-worker"|"note-writer"|"handoff-writer"|"extraction"|"turn", id: string}' }, { status: 400 });
+	if ((kind !== "job" && kind !== "plugin-worker" && kind !== "note-writer" && kind !== "handoff-writer" && kind !== "book-map-writer" && kind !== "book-contents-writer" && kind !== "extraction" && kind !== "turn") || typeof id !== "string" || id === "") {
+		return Response.json({ error: 'Body must be {kind: "job"|"plugin-worker"|"note-writer"|"handoff-writer"|"book-map-writer"|"book-contents-writer"|"extraction"|"turn", id: string}' }, { status: 400 });
 	}
 	if (!/^[A-Za-z0-9:_-]+$/.test(id)) {
 		return Response.json({ error: "Invalid id" }, { status: 400 });
@@ -56,6 +56,13 @@ export async function POST(req: Request) {
 		// Fork plan 04: id is "<courseId>:<unitId>"; the writer stops and the
 		// handoff keeps its computed part, with "Try again" on the overview.
 		if (!abortHandoffWriterActivity(id)) return Response.json({ ok: false, reason: "not_running" }, { status: 409 });
+		return Response.json({ ok: true });
+	}
+	if (kind === "book-map-writer" || kind === "book-contents-writer") {
+		// Fork plan 05: id is "<bookId>:map" or "<bookId>:contents"; the
+		// writer stops, keeping what it wrote, with "Try again" on the book.
+		if (!id.endsWith(kind === "book-map-writer" ? ":map" : ":contents")) return Response.json({ error: "Invalid id" }, { status: 400 });
+		if (!abortBookWriterActivity(id)) return Response.json({ ok: false, reason: "not_running" }, { status: 409 });
 		return Response.json({ ok: true });
 	}
 	if (kind === "turn") {
