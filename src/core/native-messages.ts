@@ -535,6 +535,16 @@ export function problemInputForConclude(
 	messages: readonly LhMessage[],
 	concludeCallId: string,
 ): { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined {
+	return problemForConclude(messages, concludeCallId)?.input;
+}
+
+/** The clean pose a conclude call ends: its call id and input (the same
+ *  walk as problemInputForConclude). Course evidence keys practice
+ *  outcomes by the problem's call id (fork plan 04). */
+export function problemForConclude(
+	messages: readonly LhMessage[],
+	concludeCallId: string,
+): { toolCallId: string; input: { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown } | undefined } | undefined {
 	let mi = messages.findIndex(
 		(m) =>
 			(m as { role?: string }).role === "assistant" &&
@@ -557,9 +567,12 @@ export function problemInputForConclude(
 			if (block.type !== "toolCall" || !clean.has(block.id)) continue;
 			const problem = practiceProblemForCall(messages, { messageId: m.id, contentIndex: bi, toolCallId: block.id, toolName: block.name });
 			if (!problem) continue;
-			return (problem.input ?? undefined) as
-				| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
-				| undefined;
+			return {
+				toolCallId: block.id,
+				input: (problem.input ?? undefined) as
+					| { statement?: unknown; mode?: unknown; target?: unknown; modelSolution?: unknown }
+					| undefined,
+			};
 		}
 	}
 	return undefined;

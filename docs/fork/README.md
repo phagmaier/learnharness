@@ -124,6 +124,10 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Agent-selected implementation:* prompt-size baselines are held in memory and tied to saved response ids; an unknown baseline after restart conservatively counts the full current course section until another response measures it. Course folders created by this repair use an id derived from the course id, allowing recovery independently of a session's current placement. Previously recorded folder ids remain supported, and learner moves are preserved.
 
+*Human, 2026-11-13, item 5 review follow-up:* fix all four evidence-capture findings. Free recall remains ungraded even for "don't know"; overlapping plugin occurrences with a reused call id each retain their answer; node titles reflect successful plans preceding the question's execution, including in the same assistant batch; and settlement syncs evidence after saving parked dismissals.
+
+*Agent-selected implementation:* retain pending plugin occurrences in call-id buckets and match results with the existing occurrence validator, preserving native questions' newest-call pairing. Read plan results only within the originating assistant's batch when assigning question titles. Event fields, id formats, storage versions and dependencies stay unchanged.
+
 ## Feature designs
 
 ### Courses, units, and notes

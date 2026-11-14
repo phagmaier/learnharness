@@ -16,7 +16,7 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
-import { courseInputRefusal, unitTurnCourse } from "./courses.ts";
+import { courseInputRefusal, syncSessionEvidence, unitTurnCourse } from "./courses.ts";
 import { sessionExtracts } from "../core/course.ts";
 import { PROBER_UNIT_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "../agent/course-prompts.ts";
 import type { ModelRole } from "../../config.ts";
@@ -910,6 +910,7 @@ export async function handleChatInput(
 				const persisted = stores.chatStore.getChat(chatId)?.messages ?? [];
 				reconcileUserSteers(chatId, persisted);
 				settleSteers(chatId, persisted, true, constructed);
+				if (record.course) syncSessionEvidence(record);
 			},
 			onFinish: (turnMessages, isAborted) => {
 				if (preparation && !preparation.isCurrent()) return;
@@ -954,6 +955,9 @@ export async function handleChatInput(
 				// subsequent fetch reads the dismissal already in the record
 				// (the same ordering law as persistTurn itself).
 				applyParkedDismissal(stores.chatStore, chatId);
+				// Fork plan 04: include parked dismissals in this settlement's
+				// answer and practice evidence before publishing completion.
+				if (record.course) syncSessionEvidence(record);
 				// Any helper activity after the last model call stays pending;
 				// settlement never injects it behind the agent's context.
 				// LAST: a poller that sees not-in-flight must read an already-persisted

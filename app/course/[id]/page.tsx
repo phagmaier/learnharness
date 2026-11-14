@@ -1,13 +1,15 @@
 import { notFound } from "next/navigation";
 import { CourseOverview } from "@/components/course-overview";
-import { isCourseRefusal, readCourse } from "@/src/server";
+import { isCourseRefusal, syncCourseEvidence } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-/** A course's overview (fork plan 04 item 3). */
+/** A course's overview (fork plan 04 item 3). Opening it brings in any
+ *  evidence its sessions hold that a turn's settlement missed (item 5);
+ *  the overview's live refetches are plain reads. */
 export default async function CoursePage({ params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
-	const course = readCourse(id);
+	const course = syncCourseEvidence(id);
 	if (isCourseRefusal(course)) {
 		if (course.status === 404) notFound();
 		return (

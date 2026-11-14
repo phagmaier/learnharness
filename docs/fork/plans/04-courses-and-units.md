@@ -1,6 +1,6 @@
 # Plan 04: courses and units (roadmap step 4, course phase 1)
 
-**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–4 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation (see Outcome). Items 5–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–4 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation (see Outcome). Item 5 is implemented and not yet committed. Items 6–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -693,3 +693,55 @@ The human authorized fixing all four findings from the review of `8a99874`. Thes
 - **Runtime verification:** the production build passed with the inherited `pdf-read.ts` filesystem-tracing warning. On a scratch profile with no configured model, Playwright reproduced the original offline rename scenario and verified that the sidebar and unit breadcrumb both update after reconnect. Additional seeded completed/reopened states, refreshed by explicitly dispatching the channel's `open` event, replaced the composer with the closed band and restored it correctly. These checks do not implement or exercise item 6's pending lifecycle routes.
 - **Development limitations:** the default development bundler stalled on the chat page, and an attempted Webpack fallback hit the inherited `node:crypto` import through the core barrel. The generated development cache was moved to the scratch directory; final browser evidence uses the successful production build. Build/server logs and scratch data are under `/tmp/lh-item4-fixed-browser/`. No dependency, configuration or storage-format changes, paid model calls, or access to real learning profiles.
 
+### Item 5 (2026-11-13)
+
+- **Built:**
+  - `syncCourseEvidence(courseId)` in the course service. It reads the setup session, each unit's recorded session, and the "Practice this unit" sessions linked to the course, and appends the events the record lacks. The transcript readers are pure, in `src/core/course-evidence.ts` (`sessionAnswerEvidence`, `sessionPracticeEvidence`).
+  - **Where it runs:**
+    - at each turn's settlement in a setup, unit, or linked practice session, including a failed settlement, reading only that session;
+    - at course creation, for the setup probe's answers (the setup session closes then, so no later settlement would bring them in);
+    - when the overview page opens (its server render), as a full sync.
+    - Item 6 calls it before writing a handoff.
+  - **Answer events:** every answered `probe`, `recall`, `quiz`, `explain` and plugin question, as planned. `ask_user_question` answers produce none.
+  - **Practice events:** one per concluded problem, with the conclude's outcome, rung and miss class plus the problem's targets.
+- **Agent-selected:**
+  - **Results:**
+    - A multiple-choice answer (`probe`, `quiz`) is right or wrong from its stored verdict.
+    - Free recall (`recall`, `explain`) and plugin answers are ungraded.
+    - "Don't know" is `dontKnow` for multiple-choice tools. Free recall stays ungraded, including a teach-side check answered "don't know" (corrected in the human-authorized item 5 review follow-up below).
+    - A learner's dismissal is `skipped`, for native and plugin questions alike. A plugin protocol cancellation (an incompatible or unreadable plugin) records nothing, since it says nothing about the learner.
+  - **Fields:**
+    - The phase is `setup` throughout the setup session. Elsewhere it comes from the tool (`probe`/`recall` mean probe, `quiz`/`explain` mean teach) or from the plugin question's variant.
+    - `tool` is the call's tool name, which for a plugin question is the plugin's own tool.
+    - `questionType` comes from the stored answer. When that record omits it (a dismissal's minimal record does), the call's own `type` is used.
+    - `nodeTitle` is the node's title in the latest successful `plan_init` before the question executes, including an earlier call in its assistant batch, so a later plan rewrite doesn't rename past answers. It is absent when the node isn't in that plan.
+    - `at` is the answer's `answeredAt`, or the result's time when there is none.
+  - **Ids:** answers use `<chatId>:<toolCallId>`, with `:<n>` added for a reused call id. Practice events use `<practiceChatId>:<problemCallId>`, so a dismissal counts as concluded "dismissed" from its marker on, and its deferred conclude later reads as the same event. A refused conclude records nothing. The rung is stored as a number (R0–R5 → 0–5), as item 1's contract declared.
+  - **Membership:** only the session the course records for a unit contributes; a crash's duplicate does not. A practice session contributes only when it is a practice session linked to an existing unit of this course.
+  - **Writes:** nothing is written when nothing is new, so the `courses-changed` refetch it triggers ends there. Evidence-only writes leave `updatedAt` alone (`courseStore.update` gained a `touch: false` option): every unit turn would otherwise invalidate an open "Edit units" draft through its stale-edit check. Events are never removed, so a deleted practice session's events stay.
+  - **"When the overview loads"** is the overview page's server render, not `GET /api/courses/:id`. The overview and every open unit page refetch that route on each `courses-changed`, and a full sync there would re-read every session of the course from each open window on every change. Those refetches stay plain reads, and settlement keeps the record current between page loads.
+  - `problemForConclude` in `native-messages.ts` names a conclude's problem call; `problemInputForConclude` now wraps it.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning.
+  - Full suite: 5,531 pass, 0 fail, 4 skipped (5,535 tests). A one-line simplification of the settlement hook landed during that run; typecheck, lint and the five course test files were rerun on the final code and pass.
+  - New: `tests/course-evidence.test.ts` (8), with every expected event worked by hand. It covers:
+    - a unit transcript holding every answer kind: wrong and right checks with confidence, don't know, a skipped check, a predict, a refused call, free recall, plugin answered and dismissed, a plan rewrite, and an ask answer that records nothing;
+    - setup answers;
+    - practice concludes, with and without the dismissal's deferred conclude;
+    - the service: three kinds of session synced once, another course's practice session and a duplicate unit session ignored, `updatedAt` unchanged, a repeated sync leaving the file byte-identical, a deleted practice session's events kept, one-session syncs, and setup answers at course creation;
+    - a real teacher turn through the handler (`plan_init`, a check `quiz`, then the learner's answer graded by `buildAnswer` as the dock does), whose settlement records the answer.
+  - **Mutation checks:** removing the settlement hook, stamping `updatedAt`, dropping the creation sync, and reading titles from the session's final plan each make the new tests fail.
+- **Known limits until later items:** "Practice this unit" sessions arrive with item 8, so practice evidence is covered by tests only. The handoff's computed topics start reading these events in item 6.
+- **Human checks owed:** none for this item (no UI change).
+
+### Item 5 review repairs (2026-11-13)
+
+The human authorized fixing all four findings from the review of the uncommitted item 5 implementation.
+
+- **Free recall:** `recall` and `explain` stay ungraded for "don't know" as well as text answers. An `explain` check can no longer become a graded failure in the handoff topic rule.
+- **Reused plugin ids:** pending occurrences sharing a native call id are retained separately. Each result must match its saved occurrence through the existing validator before that occurrence is consumed. Native questions retain their existing newest-call pairing. Event ids retain their format and answer order.
+- **Historical titles:** a bounded scan of an assistant batch finds successful plan results. Earlier plan calls in that batch establish the title for a question after them; later assistants' rewrites cannot rename a question already posed. This covers native and plugin questions.
+- **Parked dismissals:** the normal settlement path syncs evidence after `applyParkedDismissal`, before releasing the turn. The failed-settlement path already had that ordering.
+- **Regression checks:** extend `tests/course-evidence.test.ts` with don't-know free recall through `buildAnswer` and the handoff rule; both answer orders for overlapping plugin occurrences, copied/repeated results and repeated syncs; native and plugin batched plan rewrites; a real teacher batch containing plan and quiz; and real-route parked question/practice dismissals, including practice evidence retained after session deletion. Each original finding was observed failing before its fix and passing afterward. The quiz and practice builders now supply valid live-tool inputs.
+- **Verification:** all 14 evidence tests and the 120-test focused course/plugin/dismissal/practice set pass. Typecheck and lint pass (the inherited `source-name-ui.test.tsx` warning remains). The full suite passes: **5,537 passed, 0 failed, 4 skipped** (5,541 tests). The production build passes against a scratch profile, with the inherited `pdf-read.ts` filesystem-tracing warning. Final code and test review found no remaining in-scope issues. No browser or live-provider checks were needed for these evidence-bookkeeping repairs.
+- No dependencies, storage versions or formats, UI or prompt wording changes. No paid model calls or access to real learning profiles. Changes remain uncommitted on `phase1-courses`.

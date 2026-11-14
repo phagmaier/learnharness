@@ -8,8 +8,9 @@
  * back-pointer) before the course records it, and the setup session is
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
-import type { ChatCourseLink, ChatRecord, ChatSummary, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
+import type { ChatCourseLink, ChatRecord, ChatSummary, CourseEvidence, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
 import { applyUnitEdit, draftProblems, latestProposalCallId, uniqueUnitId, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
+import { sessionAnswerEvidence, sessionPracticeEvidence } from "../core/course-evidence.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
 import { applyOrganizationAction, placementOf } from "../core/source-organization.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
@@ -133,6 +134,9 @@ export function createCourseFromSetup(body: unknown): { ok: true; courseId: stri
 	};
 	courseStore.create(course);
 	stores.chatStore.setCourseLink(setupChatId, { role: "setup", courseId: course.id });
+	// The setup probe's answers: the session closes now, so no later
+	// settlement would bring them in.
+	syncCourseEvidence(course.id, { chatId: setupChatId });
 	const started = startUnit(course.id, units[0]!.id);
 	return { ok: true, courseId: course.id, chatId: started.ok ? started.chatId : null };
 }
@@ -370,6 +374,74 @@ export function unitTurnCourse(record: ChatRecord): { context: string; recordGoa
 		context: unitCourseContext(course, unit.id),
 		recordGoalReached: (summary, toolCallId) => recordGoalReached(course.id, unit.id, record.id, toolCallId, summary),
 	};
+}
+
+// ─── evidence (item 5) ──────────────────────────────────────────────────────
+
+/** A course session's evidence, or null when the chat isn't one of the
+ *  course's: its setup session, the session a unit records, or a
+ *  "Practice this unit" session linked to one of its units. */
+function sessionEvidence(course: CourseRecord, chat: ChatRecord): CourseEvidence[] | null {
+	const messages = chat.messages;
+	if (chat.id === course.setupChatId) return sessionAnswerEvidence(messages, { chatId: chat.id, setup: true });
+	const unit = course.units.find((candidate) => candidate.chatId === chat.id);
+	if (unit) return sessionAnswerEvidence(messages, { chatId: chat.id, unitId: unit.id });
+	const link = chat.course;
+	if (chat.kind === "practice" && link?.role === "practice" && link.courseId === course.id && course.units.some((candidate) => candidate.id === link.unitId)) {
+		return sessionPracticeEvidence(messages, { chatId: chat.id, unitId: link.unitId });
+	}
+	return null;
+}
+
+function readChat(chatId: string): ChatRecord | null {
+	try { return stores.chatStore.getChat(chatId); }
+	catch { return null; }
+}
+
+/**
+ * Append the evidence a course's sessions hold and its record lacks: the
+ * setup session, each unit's recorded session, and the linked "Practice
+ * this unit" sessions. `chatId` limits the read to that one session (a
+ * turn's settlement). Ids are stable, so repeating it adds nothing, and
+ * nothing is ever removed: a deleted practice session's events stay.
+ * Writes only when something is new, and leaves updatedAt alone.
+ */
+export function syncCourseEvidence(courseId: string, only?: { chatId: string }): CourseRecord | CourseRefusal {
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	let chats: ChatRecord[];
+	if (only) {
+		const chat = readChat(only.chatId);
+		chats = chat ? [chat] : [];
+	} else {
+		const ids = new Set([course.setupChatId, ...course.units.flatMap((unit) => unit.chatId ? [unit.chatId] : [])]);
+		for (const summary of stores.chatStore.listChats()) {
+			if (summary.course?.role === "practice" && summary.course.courseId === courseId) ids.add(summary.id);
+		}
+		chats = [...ids].map(readChat).filter((chat): chat is ChatRecord => chat !== null);
+	}
+	const known = new Set(course.evidence.map((event) => event.id));
+	const fresh = chats.flatMap((chat) => sessionEvidence(course, chat) ?? []).filter((event) => !known.has(event.id));
+	if (fresh.length === 0) return course;
+	return courseStore.update(courseId, (current) => {
+		const stored = new Set(current.evidence.map((event) => event.id));
+		return { ...current, evidence: [...current.evidence, ...fresh.filter((event) => !stored.has(event.id))] };
+	}, { touch: false }) ?? refusal(404, "Unknown course");
+}
+
+/** The settlement hook: sync the course a setup, unit, or linked practice
+ *  session belongs to, from that session only. A setup session without a
+ *  course has nothing to sync (creation syncs it, then closes it). Never
+ *  throws; a failure is logged and the next sync catches up. */
+export function syncSessionEvidence(record: Pick<ChatRecord, "id" | "course">): void {
+	try {
+		const courseId = record.course?.courseId;
+		if (!courseId) return;
+		const synced = syncCourseEvidence(courseId, { chatId: record.id });
+		if (isRefusal(synced) && synced.status !== 404) console.warn(`[course ${courseId}] evidence sync for ${record.id} refused: ${synced.error}`);
+	} catch (error) {
+		console.error(`[chat ${record.id}] course evidence sync failed:`, error);
+	}
 }
 
 // ─── the turn handler's gate ────────────────────────────────────────────────

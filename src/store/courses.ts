@@ -161,13 +161,14 @@ function list(): { courses: CourseRecord[]; unreadable: string[] } {
 }
 
 /** Read-modify-write: `change` gets the stored record (unknown fields
- *  included) and returns the next one; updatedAt is stamped here. Null
- *  when the course doesn't exist. */
-function update(courseId: string, change: (record: CourseRecord) => CourseRecord): CourseRecord | null {
+ *  included) and returns the next one; updatedAt is stamped here unless
+ *  `touch` is false (evidence bookkeeping, which must not make an open
+ *  "Edit units" draft stale). Null when the course doesn't exist. */
+function update(courseId: string, change: (record: CourseRecord) => CourseRecord, options: { touch?: boolean } = {}): CourseRecord | null {
 	const record = get(courseId);
 	if (!record) return null;
 	const next = change(record);
-	return write({ ...next, id: record.id, updatedAt: new Date().toISOString() });
+	return write({ ...next, id: record.id, updatedAt: options.touch === false ? record.updatedAt : new Date().toISOString() });
 }
 
 /** Remove the course's whole folder (record, progress.md, notes). */
