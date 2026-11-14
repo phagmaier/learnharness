@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
+import { DeleteCourseDialog } from "@/components/delete-course-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
 import { ChevronRightIcon, DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
@@ -750,6 +751,7 @@ function SessionsSidebar() {
 	const ctxAnchorRef = useRef<HTMLElement | null>(null);
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	const [deletingCourse, setDeletingCourse] = useState<CourseSummary | null>(null);
 
 	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem, grouped = false) => {
 		e.preventDefault(); // suppress the native menu
@@ -834,6 +836,19 @@ function SessionsSidebar() {
 			setDeleting(null);
 			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
 			if (isSessionPath(pathname, id)) router.push("/");
+			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
+		},
+		[pathname, router],
+	);
+	// Fork plan 04 item 9: the course and its sessions leave the lists; an
+	// open overview, Notes tab or member session goes home.
+	const onCourseDeleted = useCallback(
+		(courseId: string, chatIds: string[], _mode: ChatDeleteMode, graphRevision: number) => {
+			setDeletingCourse(null);
+			const gone = new Set(chatIds);
+			setCourses((prev) => prev.filter((c) => c.id !== courseId));
+			setChats((prev) => (prev ? prev.filter((c) => !gone.has(c.id)) : prev));
+			if (pathname === `/course/${courseId}` || pathname === `/course/${courseId}/notes` || chatIds.some((id) => isSessionPath(pathname, id))) router.push("/");
 			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
 		},
 		[pathname, router],
@@ -1156,6 +1171,11 @@ function SessionsSidebar() {
 								setRenamingCourseId(ctxCourseId);
 								setCtxCourseId(null);
 							}}
+							onDelete={() => {
+								const target = courses.find((c) => c.id === ctxCourseId);
+								if (target) setDeletingCourse(target);
+								setCtxCourseId(null);
+							}}
 						/>
 					</MenuShell>
 				)}
@@ -1166,6 +1186,11 @@ function SessionsSidebar() {
 					chat={deleting}
 					onClose={() => setDeleting(null)}
 					onDeleted={onDeleted}
+				/>
+				<DeleteCourseDialog
+					course={deletingCourse}
+					onClose={() => setDeletingCourse(null)}
+					onDeleted={onCourseDeleted}
 				/>
 			</aside>
 	);
@@ -1238,18 +1263,29 @@ export function SessionMenuItems({ chatId, kind, grouped, onClose, onRename, onD
 	);
 }
 
-/** A course header's menu (fork plan 04): rename here; deletion is per
- *  course. Exported for render tests. */
-export function CourseMenuItems({ onRename }: { onRename: () => void }) {
+/** A course header's menu (fork plan 04): Rename course, then Delete
+ *  course… last, in the session menu's quiet destructive look. Exported
+ *  for render tests. */
+export function CourseMenuItems({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
 	return (
-		<button
-			type="button"
-			data-testid="ctx-course-rename"
-			onClick={onRename}
-			className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
-		>
-			Rename course
-		</button>
+		<>
+			<button
+				type="button"
+				data-testid="ctx-course-rename"
+				onClick={onRename}
+				className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
+			>
+				Rename course
+			</button>
+			<button
+				type="button"
+				data-testid="ctx-course-delete"
+				onClick={onDelete}
+				className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+			>
+				Delete course…
+			</button>
+		</>
 	);
 }
 

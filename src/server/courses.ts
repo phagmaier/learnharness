@@ -13,11 +13,15 @@ import { applyCourseChanges, applyUnitEdit, courseChangeLine, draftProblems, lat
 import { sessionAnswerEvidence, sessionPracticeEvidence } from "../core/course-evidence.ts";
 import { newUnitPracticeMessage, newUnitStartMessage, type GraphContextPick, type LhMarkerMessage } from "../core/native-messages.ts";
 import { modelsNotConfigured } from "../core/settings.ts";
-import { applyOrganizationAction, placementOf } from "../core/source-organization.ts";
+import type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
+import { applyOrganizationAction, folderIsEmpty, placementOf } from "../core/source-organization.ts";
+import { abortExtraction } from "../agent/subagents/extraction.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
-import { runningWorkBlocker, stampSessionModel } from "./chats.ts";
-import { handoffWriterEngine, isHandoffWriterRunning, settleInterruptedHandoffs, startHandoffWriter, stopHandoffWriter } from "./handoffs.ts";
+import { extractionRunningIn, purgeChatSessions, runningWorkBlocker, stampSessionModel, windDownExtractions } from "./chats.ts";
+import { graphRevision } from "./graph.ts";
+import { handoffWriterEngine, isHandoffWriterRunning, settleInterruptedHandoffs, startHandoffWriter, stopCourseHandoffWriters, stopHandoffWriter } from "./handoffs.ts";
 import { createNote } from "./notes.ts";
+import { sourceDirectory } from "./source-organization.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 
@@ -703,6 +707,103 @@ export function syncSessionEvidence(record: Pick<ChatRecord, "id" | "course">): 
 	} catch (error) {
 		console.error(`[chat ${record.id}] course evidence sync failed:`, error);
 	}
+}
+
+// ─── course deletion (item 9) ───────────────────────────────────────────────
+
+export type CourseDeleteRefusal = CourseRefusal & { code?: "turn_in_flight" | "jobs_running" | "extraction_winding_down"; chatId?: string };
+export type CourseDeleteOutcome = { ok: true; mode: ChatDeleteMode; chatIds: string[]; stats: ChatDeletionStats; graphRevision: number } | CourseDeleteRefusal;
+
+const DELETE_WINDING_DOWN = "An extraction in this course is still winding down — try again in a moment";
+
+/** Every member named by the course, setup first and then units in order,
+ *  with the name a refusal uses. Missing records still identify graph
+ *  contributions and client pages to remove on a successful retry. Linked
+ *  "Practice this unit" sessions aren't the course's and stay. */
+function courseSessions(course: CourseRecord): Array<{ chatId: string; name: string }> {
+	return [{ chatId: course.setupChatId, name: "the setup session" }, ...course.units.flatMap((unit, index) =>
+		unit.chatId ? [{ chatId: unit.chatId, name: `unit ${index + 1} (${unit.title})` }] : [])];
+}
+
+/** The first session with a running turn or background job, named. */
+function courseWorkBlocker(sessions: ReadonlyArray<{ chatId: string; name: string }>): CourseDeleteRefusal | null {
+	for (const session of sessions) {
+		const blocker = runningWorkBlocker(session.chatId);
+		if (!blocker) continue;
+		const error = blocker.code === "turn_in_flight"
+			? `A turn is running in ${session.name} — try again when it finishes`
+			: `Background jobs are still running in ${session.name} — try again when they finish`;
+		return { ok: false, status: 409, code: blocker.code, chatId: session.chatId, error };
+	}
+	return null;
+}
+
+/** Remove the course's graph folder when nothing is left in it: no source,
+ *  including a deleted session whose traces the graph kept, and no
+ *  subfolder. Presentation only: a failure is logged and never fails the
+ *  deletion. */
+function removeCourseSourceFolder(course: CourseRecord): void {
+	try {
+		const state = stores.sourceOrganizationStore.read();
+		const sources = new Set(sourceDirectory.read().sources.map((source) => source.id));
+		let next = state;
+		for (const id of new Set([course.sourceFolderId, `folder_${course.id}`])) {
+			if (!id || !next.folders.some((folder) => folder.id === id) || !folderIsEmpty(next, id, sources)) continue;
+			next = {
+				...next,
+				folders: next.folders.filter((folder) => folder.id !== id),
+				placements: Object.fromEntries(Object.entries(next.placements).filter(([, placement]) => placement.folderId !== id)),
+			};
+		}
+		if (next !== state) stores.sourceOrganizationStore.write(next);
+	} catch (error) {
+		console.error(`[course ${course.id}] removing the course's graph folder failed:`, error);
+	}
+}
+
+/**
+ * Delete a course (the learner's "Delete course…"), mirroring session
+ * deletion: refused while any of its sessions has a running turn or
+ * background job, naming the session; then their extraction is wound down.
+ * The rest runs without an await: the gates again, the handoff writers
+ * stopped, every session deleted through the session purge (setup first,
+ * then the units; note writers stop with their notes), the graph folder if
+ * it's empty, and the course folder (record, progress.md, notes) last. A
+ * failure part-way keeps the course, whose missing sessions count as
+ * already deleted, so Delete again finishes.
+ */
+export async function deleteCourse(courseId: string, mode: ChatDeleteMode): Promise<CourseDeleteOutcome> {
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	const sessions = courseSessions(course);
+	const blocker = courseWorkBlocker(sessions);
+	if (blocker) return blocker;
+	if (!(await windDownExtractions(sessions.map((session) => session.chatId)))) {
+		return { ...refusal(503, DELETE_WINDING_DOWN), code: "extraction_winding_down" };
+	}
+
+	// No await from here on. Reread: a unit may have started meanwhile.
+	const current = readCourse(courseId);
+	if (isRefusal(current)) return current;
+	const doomed = courseSessions(current);
+	const lateBlocker = courseWorkBlocker(doomed);
+	if (lateBlocker) return lateBlocker;
+	const chatIds = doomed.map((session) => session.chatId);
+	if (extractionRunningIn(chatIds)) {
+		for (const chatId of chatIds) abortExtraction(chatId);
+		return { ...refusal(503, DELETE_WINDING_DOWN), code: "extraction_winding_down" };
+	}
+	stopCourseHandoffWriters(courseId);
+	let stats: ChatDeletionStats;
+	try {
+		({ stats } = purgeChatSessions(chatIds, mode));
+		removeCourseSourceFolder(current);
+		courseStore.remove(courseId);
+	} catch (error) {
+		console.error(`[course ${courseId}] deleting the course failed:`, error);
+		return refusal(500, "Some of this course's sessions couldn't be deleted. Try again.");
+	}
+	return { ok: true, mode, chatIds, stats, graphRevision: graphRevision() };
 }
 
 // ─── the turn handler's gate ────────────────────────────────────────────────

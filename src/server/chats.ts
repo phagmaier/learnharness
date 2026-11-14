@@ -1,7 +1,7 @@
 import { abortExtraction, extractionStatuses } from "../agent/subagents/extraction.ts";
 import { isJobLive } from "../agent/subagents/aborts.ts";
 import { coverageOf } from "../core/coverage.ts";
-import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
+import { deleteChatTraces, deleteSourcesTraces, type ChatDeleteMode, type ChatDeletionStats } from "../core/graph-deletion.ts";
 import { deleteSessionNotes } from "./notes.ts";
 import { titleFromPrompt } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
@@ -116,28 +116,78 @@ export async function deleteChatSession(chatId: string, mode: ChatDeleteMode): P
 	}
 	const blocker = runningWorkBlocker(chatId);
 	if (blocker) return blocker;
-	if (extractionStatuses().some((run) => run.chatId === chatId)) {
-		abortExtraction(chatId); // true cancellation — spend stops, nothing merges
-		const deadline = Date.now() + WIND_DOWN_TIMEOUT_MS;
-		while (extractionStatuses().some((run) => run.chatId === chatId)) {
-			if (Date.now() > deadline) {
-				return {
-					ok: false,
-					status: 503,
-					code: "extraction_winding_down",
-					error: "The session's extraction is still winding down — try again in a moment",
-				};
-			}
-			await new Promise((resolve) => setTimeout(resolve, WIND_DOWN_POLL_MS));
-		}
+	if (!(await windDownExtractions([chatId]))) {
+		return {
+			ok: false,
+			status: 503,
+			code: "extraction_winding_down",
+			error: "The session's extraction is still winding down — try again in a moment",
+		};
 	}
 
 	// A result wake or a worker may have started during extraction wind-down.
 	// Recheck immediately before the synchronous purge, with no await gap.
 	const lateBlocker = runningWorkBlocker(chatId);
 	if (lateBlocker) return lateBlocker;
+	// The wind-down helper itself yields even for an empty registry. A
+	// newly registered extraction must also stop before the record goes.
+	if (extractionRunningIn([chatId])) {
+		abortExtraction(chatId);
+		return {
+			ok: false,
+			status: 503,
+			code: "extraction_winding_down",
+			error: "The session's extraction is still winding down — try again in a moment",
+		};
+	}
 
 	return finishChatDeletion(chatId, mode);
+}
+
+/** Whether any of these sessions has an extraction run registered. */
+export function extractionRunningIn(chatIds: readonly string[]): boolean {
+	const ids = new Set(chatIds);
+	return extractionStatuses().some((run) => ids.has(run.chatId));
+}
+
+/** Step 2 of deletion for one or more sessions: true-cancel their
+ *  extraction runs and wait until none is registered. False when the
+ *  wind-down outlasts its timeout (the caller's retryable 503). */
+export async function windDownExtractions(chatIds: readonly string[]): Promise<boolean> {
+	if (!extractionRunningIn(chatIds)) return true;
+	for (const chatId of chatIds) abortExtraction(chatId); // true cancellation — spend stops, nothing merges
+	const deadline = Date.now() + WIND_DOWN_TIMEOUT_MS;
+	while (extractionRunningIn(chatIds)) {
+		if (Date.now() > deadline) return false;
+		await new Promise((resolve) => setTimeout(resolve, WIND_DOWN_POLL_MS));
+	}
+	return true;
+}
+
+/**
+ * Step 3 of deletion for several sessions at once (fork plan 04 item 9,
+ * course deletion): one ledger rewrite for all named members, then each
+ * readable session's jobs and record, plus every named member's notes.
+ * The caller has run the gates and wind-down and calls this without an await in between. Throws when
+ * a record is still on disk afterwards (the store swallows unlink failures),
+ * so the caller can keep whatever still points at it and a rerun finishes.
+ */
+export function purgeChatSessions(chatIds: readonly string[], mode: ChatDeleteMode): { stats: ChatDeletionStats; jobsRemoved: number } {
+	const stats = deleteSourcesTraces(stores.graphStore, new Set(chatIds), mode);
+	// A missing or unreadable record counts as gone, but its graph traces
+	// above still belong to the course. Never unlink unreadable records.
+	const readableIds = chatIds.filter((chatId) => {
+		try { return stores.chatStore.getChat(chatId) !== null; }
+		catch { return false; }
+	});
+	let jobsRemoved = 0;
+	for (const chatId of chatIds) {
+		if (readableIds.includes(chatId)) jobsRemoved += finishChatRecordDeletion(chatId);
+		else deleteSessionNotes(chatId);
+	}
+	const left = readableIds.filter((chatId) => stores.chatStore.getChat(chatId));
+	if (left.length > 0) throw new Error(`Could not remove the session records ${left.join(", ")}.`);
+	return { stats, jobsRemoved };
 }
 
 /** Source deletion has already purged the selected batch's graph traces.

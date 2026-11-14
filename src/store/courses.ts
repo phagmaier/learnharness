@@ -185,11 +185,24 @@ function update(courseId: string, change: (record: CourseRecord) => CourseRecord
 	return write({ ...next, id: record.id, updatedAt: options.touch === false ? record.updatedAt : new Date().toISOString() });
 }
 
-/** Remove the course's whole folder (record, progress.md, notes). */
+/** Remove the course's whole folder, keeping its record until all other
+ * contents are gone. Restore the exact record if the final directory
+ * removal fails, so the next deletion still has every member id. */
 function remove(courseId: string): boolean {
 	const dir = courseDir(courseId);
 	if (!fs.existsSync(dir)) return false;
-	fs.rmSync(dir, { recursive: true, force: true });
+	const file = recordFile(courseId);
+	const original = fs.readFileSync(file, "utf8");
+	for (const name of fs.readdirSync(dir)) {
+		if (name !== RECORD) fs.rmSync(path.join(/* turbopackIgnore: true */ dir, name), { recursive: true, force: true });
+	}
+	fs.unlinkSync(file);
+	try {
+		fs.rmdirSync(dir);
+	} catch (error) {
+		writeFileAtomicSync(file, original);
+		throw error;
+	}
 	emit("courses-changed", { courseId });
 	return true;
 }

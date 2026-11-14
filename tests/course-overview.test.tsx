@@ -322,6 +322,6 @@ describe("the sidebar's course groups", () => {
 		assert.ok(!grouped.includes("ctx-rename") && !grouped.includes("ctx-delete"), "no Rename or Delete inside a group");
 		const standalone = renderToStaticMarkup(<SessionMenuItems chatId="s" kind="teach" grouped={false} onClose={() => {}} onRename={() => {}} onDelete={() => {}} />);
 		assert.ok(standalone.includes("ctx-rename") && standalone.includes("ctx-delete"));
-		assert.ok(renderToStaticMarkup(<CourseMenuItems onRename={() => {}} />).includes("Rename course"));
+		assert.ok(renderToStaticMarkup(<CourseMenuItems onRename={() => {}} onDelete={() => {}} />).includes("Rename course"));
 	});
 });
