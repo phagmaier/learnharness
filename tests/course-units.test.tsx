@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, describe, it, mock } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
 	createFauxCore,
@@ -30,6 +30,7 @@ import {
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-course-units-"));
 process.env.LH_DATA_DIR = TMP;
+process.env.LH_AUTH_FILE = path.join(TMP, "auth.json");
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
 const { chatStore } = await import("../src/store/chats.ts");
@@ -40,6 +41,7 @@ const { createProberAgent, createTeacherAgent } = await import("../src/agent/tea
 const { PROBER_UNIT_DOCTRINE, TEACHER_UNIT_DOCTRINE } = await import("../src/agent/course-prompts.ts");
 const { handleChatRequest, handleChatInput } = await import("../src/server/chat-handler.ts");
 const { runningTurn } = await import("../src/server/turn-runs.ts");
+const { dynamicPromptEstimate } = await import("../src/server/compaction.ts");
 const courses = await import("../src/server/courses.ts");
 const core = await import("../src/core/index.ts");
 const startRoute = await import("../app/api/courses/[id]/units/[unitId]/start/route.ts");
@@ -181,6 +183,21 @@ async function runTurn(chatId: string, input: unknown, build: Factory): Promise<
 
 const systemOf = (context: TranscriptContext) => JSON.stringify(context.messages.filter((m) => (m.role as string) === "system"));
 
+/** Change disk truth at the first async boundary after the course is read,
+ * without depending on how many synchronous reads preflight makes. */
+function changeDuringPreflight(courseId: string, change: (course: CourseRecord) => CourseRecord) {
+	const get = courseStore.get;
+	let scheduled = false;
+	return mock.method(courseStore, "get", (id: string) => {
+		const result = get(id);
+		if (id === courseId && !scheduled) {
+			scheduled = true;
+			queueMicrotask(() => courseStore.update(id, change));
+		}
+		return result;
+	});
+}
+
 /** A course whose unit 4 (eigen) has started; the session is configured. */
 function startedEigen(extra: Partial<CourseRecord> = {}): { course: CourseRecord; chatId: string } {
 	const course = makeCourse(fiveUnits(), extra);
@@ -266,6 +283,33 @@ describe("starting a unit", () => {
 		assert.equal(sourceOrganizationStore.read().placements[chat.id]!.folderId, read.sourceFolderId);
 	});
 
+	it("recovers the first graph folder after interrupted publication, even if the learner moved the session", () => {
+		for (const moved of [false, true]) {
+			const course = makeCourse(fiveUnits());
+			const rename = fs.renameSync;
+			const failure = mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
+				if (String(to) === path.join(TMP, "courses", course.id, "course.json")) throw new Error("interrupted course publication");
+				return rename(from, to);
+			});
+			try { assert.throws(() => courses.startUnit(course.id, "eigen"), /interrupted course publication/); }
+			finally { failure.mock.restore(); }
+			const chatId = chatStore.listChats().find((chat) => chat.course?.role === "unit" && chat.course.courseId === course.id)!.id;
+			const organization = sourceOrganizationStore.read();
+			const folderId = organization.placements[chatId]!.folderId;
+			assert.ok(folderId);
+			if (moved) sourceOrganizationStore.write({ ...organization, placements: { ...organization.placements, [chatId]: { folderId: null } } });
+			const recovered = courses.readCourse(course.id);
+			assert.ok(!courses.isCourseRefusal(recovered));
+			assert.equal(recovered.sourceFolderId, folderId, "recover the course's folder independently of the session's current placement");
+			assert.equal(sourceOrganizationStore.read().placements[chatId]!.folderId, moved ? null : folderId);
+			const next = courses.startUnit(course.id, "jordan");
+			assert.ok(next.ok);
+			const after = sourceOrganizationStore.read();
+			assert.equal(after.placements[next.chatId]!.folderId, folderId);
+			assert.equal(after.folders.length, organization.folders.length, "the next start reuses the recovered folder");
+		}
+	});
+
 	it("refuses to start a unit that has already started", async () => {
 		const { course } = startedEigen();
 		const again = await startRoute.POST(new Request("http://test", { method: "POST" }), { params: Promise.resolve({ id: course.id, unitId: "eigen" }) });
@@ -289,6 +333,24 @@ describe("starting a unit", () => {
 // ─── the course section ─────────────────────────────────────────────────────
 
 describe("the unit's course section", () => {
+	it("refreshes a course changed during preflight and binds the prompt size to the saved response", async () => {
+		const { course, chatId } = startedEigen();
+		const { engine, contexts } = scripted([() => ({ ...fauxAssistantMessage([fauxText("Begin the revised goal.")]),
+			usage: { input: 10_000, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 10_100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		})]);
+		const change = changeDuringPreflight(course.id, (current) => ({ ...current, title: "Revised course", units: current.units.map((unit) => unit.id === "eigen" ? { ...unit, goal: "Use eigenspaces to diagonalize matrices." } : unit) }));
+		try { assert.equal((await runTurn(chatId, { type: "text", text: "Ready." }, factory(chatId, engine))).status, 200); }
+		finally { change.mock.restore(); }
+		const system = systemOf(contexts[0]!);
+		assert.ok(system.includes("Course: Revised course"));
+		assert.ok(system.includes("Unit goal: Use eigenspaces to diagonalize matrices."));
+		const response = chatStore.getChat(chatId)!.messages.filter((message) => message.role === "assistant").at(-1)!;
+		const baseline = dynamicPromptEstimate(chatId, 0).previous;
+		assert.ok(baseline);
+		assert.equal(baseline.messageId, response.id, "the next turn can adjust this response's measured prompt");
+		assert.ok(baseline.tokens > 0);
+	});
+
 	it("lists every unit on one line and only the transitive prerequisites' handoffs, in full", () => {
 		const course = makeCourse(fiveUnits("chat_e"), { proposals: PROPOSALS });
 		assert.equal(core.unitCourseContext(course, "eigen"), EIGEN_CONTEXT);
@@ -403,6 +465,28 @@ describe("goal_reached", () => {
 // ─── closed units ───────────────────────────────────────────────────────────
 
 describe("a completed unit", () => {
+	it("rechecks completion after asynchronous preflight without saving input or starting a turn", async () => {
+		for (const automatic of [false, true]) {
+			const { course, chatId } = startedEigen();
+			const before = chatStore.getChat(chatId)!.messages;
+			const { engine, contexts } = scripted([() => fauxAssistantMessage([fauxText("never")])]);
+			const duringPreflight = changeDuringPreflight(course.id, (current) => ({ ...current, units: current.units.map((unit) => unit.id === "eigen" ? { ...unit, status: "completed" as const } : unit) }));
+			let response: Response;
+			try {
+				response = await handleChatInput(chatId, automatic
+					? { type: "steers", steers: [core.buildProbeHandoffSteer(chatId) as unknown as LhMessage] }
+					: { type: "text", text: "one more thing" }, factory(chatId, engine));
+				const turn = runningTurn(chatId);
+				if (turn) await new Response(turn.subscribe()).text();
+			} finally { duringPreflight.mock.restore(); }
+			assert.equal(response.status, automatic ? 410 : 409);
+			assert.deepEqual(await response.json(), { error: "This unit is completed. Reopen it to continue." });
+			assert.equal(contexts.length, 0);
+			assert.deepEqual(chatStore.getChat(chatId)!.messages, before);
+			assert.equal(runningTurn(chatId), undefined);
+		}
+	});
+
 	it("refuses main input (409) and leaves a job delivery pending (410), with no model call", async () => {
 		const { course, chatId } = startedEigen();
 		courseStore.update(course.id, (current) => ({ ...current, units: current.units.map((unit) => unit.id === "eigen" ? { ...unit, status: "completed" as const } : unit) }));

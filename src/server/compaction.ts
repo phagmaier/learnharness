@@ -36,6 +36,7 @@ import {
 	COMPACTION_RESERVE_TOKENS,
 	estimateContextTokens,
 	estimateTokens,
+	lastAssistantUsageIndex,
 	newCompactionMarker,
 	planTreeToText,
 	serializeForSummary,
@@ -60,6 +61,13 @@ const SUMMARIZER_SYSTEM_PROMPT =
  *  is the chat's own conversation engine (owner ruling: the session's
  *  model writes its own summary). Injectable for tests. */
 export type Summarizer = (prompt: string, engine: PiEngine) => Promise<{ summary: string; usage: Usage }>;
+
+/** A changing system-prompt section and its size at a known usage anchor.
+ * These estimates are runtime bookkeeping, never saved in the transcript. */
+export interface DynamicPromptEstimate {
+	tokens: number;
+	previous?: { messageId: string; tokens: number };
+}
 
 /** The production summarizer over the sub-agent seam. */
 async function subagentSummarizer(prompt: string, engine: PiEngine): Promise<{ summary: string; usage: Usage }> {
@@ -118,6 +126,9 @@ export interface CompactionDeps {
 	/** The composed system prompt's token estimate (chars/4) — the
 	 *  projection the provider actually receives starts with it. */
 	systemPromptTokens: number;
+	/** The changing section is already part of systemPromptTokens. Only
+	 *  its growth beyond a measured request is added to an anchored estimate. */
+	dynamicPrompt?: DynamicPromptEstimate;
 	/** Trigger against a prospective request without recording/summarizing
 	 * its new cargo. The cut and summary still use only saved history. */
 	projectMessages?: (record: ChatRecord) => readonly LhMessage[];
@@ -129,10 +140,25 @@ export interface CompactionDeps {
 
 interface CompactionState {
 	inFlight: Map<string, Promise<void>>;
+	dynamicPromptUsage?: Map<string, NonNullable<DynamicPromptEstimate["previous"]>>;
 }
 const g = globalThis as typeof globalThis & { __lhCompaction?: CompactionState };
 function state(): CompactionState {
 	return (g.__lhCompaction ??= { inFlight: new Map() });
+}
+
+export function dynamicPromptEstimate(chatId: string, tokens: number): DynamicPromptEstimate {
+	return { tokens, previous: state().dynamicPromptUsage?.get(chatId) };
+}
+
+/** Bind the current section to the latest successfully saved response with
+ * usage. Errors/aborts never replace a usable baseline. After a restart,
+ * missing bookkeeping is handled conservatively by the estimator. */
+export function recordDynamicPromptUsage(chatId: string, tokens: number, messages: readonly LhMessage[]): void {
+	const anchor = lastAssistantUsageIndex(messages);
+	if (anchor === null) return;
+	const usage = state().dynamicPromptUsage ??= new Map();
+	usage.set(chatId, { messageId: messages[anchor]!.id, tokens });
 }
 
 /** Is a compaction running for this chat? (The client status event's
@@ -171,9 +197,17 @@ export function effectiveThresholdTokens(settingTokens: number | undefined, cont
  *  CUT-HONORED projection (never the dropped span) plus the additive
  *  prompt term the anchor would have covered. Supplying a model opts into
  *  reasoning-aware estimates; the service supplies it only when enabled. */
-export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number, model?: PiEngine["model"]): number {
+export function projectedContextTokens(messages: readonly LhMessage[], systemPromptTokens: number, model?: PiEngine["model"], dynamicPrompt?: DynamicPromptEstimate): number {
 	const est = estimateContextTokens(messages, model);
-	if (est.lastUsageIndex !== null) return est.tokens;
+	if (est.lastUsageIndex !== null) {
+		if (!dynamicPrompt) return est.tokens;
+		const id = messages[est.lastUsageIndex]!.id;
+		// Unsaved responses belong to this running agent: their usage already
+		// measures its current prompt. Saved anchors need a matching baseline;
+		// an unknown pre-restart anchor conservatively adds the whole section.
+		const previous = !id ? dynamicPrompt.tokens : dynamicPrompt.previous?.messageId === id ? dynamicPrompt.previous.tokens : 0;
+		return est.tokens + Math.max(0, dynamicPrompt.tokens - previous);
+	}
 	return estimateTokens(toLlmMessages(messages as readonly AgentMessage[]) as unknown as readonly LhMessage[], model) + systemPromptTokens;
 }
 
@@ -194,7 +228,7 @@ async function compact(deps: CompactionDeps, chatId: string): Promise<void> {
 	if (!record) return;
 	const messages = record.messages;
 	const model = deps.includeReasoning ? deps.engine.model : undefined;
-	const tokensBefore = projectedContextTokens(deps.projectMessages?.(record) ?? messages, deps.systemPromptTokens, model);
+	const tokensBefore = projectedContextTokens(deps.projectMessages?.(record) ?? messages, deps.systemPromptTokens, model, deps.dynamicPrompt);
 	if (tokensBefore <= deps.thresholdTokens) return; // settled beneath while we waited
 
 	const cut = compactionCutIndex(messages, undefined, model);
@@ -318,7 +352,7 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
 	const model = deps.includeReasoning ? deps.engine.model : undefined;
-	if (projectedContextTokens(deps.projectMessages?.(record) ?? record.messages, deps.systemPromptTokens, model) <= deps.thresholdTokens) return;
+	if (projectedContextTokens(deps.projectMessages?.(record) ?? record.messages, deps.systemPromptTokens, model, deps.dynamicPrompt) <= deps.thresholdTokens) return;
 	const admitted = state().inFlight.get(chatId);
 	if (admitted) {
 		await admitted;
@@ -347,7 +381,7 @@ export function kickCompaction(buildDeps: () => CompactionDeps | null, chatId: s
 	if (!deps || deps.canStart?.() === false) return;
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
-	if (projectedContextTokens(record.messages, deps.systemPromptTokens, deps.includeReasoning ? deps.engine.model : undefined) <= deps.thresholdTokens) return;
+	if (projectedContextTokens(record.messages, deps.systemPromptTokens, deps.includeReasoning ? deps.engine.model : undefined, deps.dynamicPrompt) <= deps.thresholdTokens) return;
 	const run = compact(deps, chatId);
 	state().inFlight.set(chatId, run);
 	void run.finally(() => {

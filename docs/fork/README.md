@@ -120,6 +120,10 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Human, 2026-11-13, plan 04 item 4:* a unit's course section stays uncapped, as planned. Measured on fixtures, the last unit of a fully chained course receives about 5k tokens of prerequisite handoffs at 15 units and 6.7k at 20 (9k–12k when every model-written list is full at the 200-character cap), above the plan's "few thousand tokens" assumption.
 
+*Human, 2026-11-13, item 4 review follow-up:* fix all four review findings: account for course-context growth in compaction, recheck completed units after asynchronous request preparation, refresh unit chrome after notification reconnects, and preserve the course's graph-folder association across an interrupted first start. These repairs retain the approved behavior, dependencies and storage formats.
+
+*Agent-selected implementation:* prompt-size baselines are held in memory and tied to saved response ids; an unknown baseline after restart conservatively counts the full current course section until another response measures it. Course folders created by this repair use an id derived from the course id, allowing recovery independently of a session's current placement. Previously recorded folder ids remain supported, and learner moves are preserved.
+
 ## Feature designs
 
 ### Courses, units, and notes

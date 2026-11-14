@@ -265,11 +265,15 @@ function adoptUnitSessions(course: CourseRecord, summaries?: readonly ChatSummar
 function placeUnitSource(course: CourseRecord, chatId: string): string | undefined {
 	try {
 		const state = stores.sourceOrganizationStore.read();
-		if (placementOf(state, chatId)) return course.sourceFolderId;
+		// A stable identity survives a crash after organization is saved but
+		// before sourceFolderId reaches course.json. Never infer ownership
+		// from a session's placement: the learner may have moved it.
+		const recoveryFolderId = `folder_${course.id}`;
+		let folderId = [course.sourceFolderId, recoveryFolderId].find((id) => id && state.folders.some((folder) => folder.id === id));
+		if (placementOf(state, chatId)) return folderId ?? course.sourceFolderId;
 		let next = state;
-		let folderId = course.sourceFolderId && state.folders.some((folder) => folder.id === course.sourceFolderId) ? course.sourceFolderId : undefined;
 		if (!folderId) {
-			const folder = { id: `folder_${crypto.randomUUID()}`, createdAt: new Date().toISOString() };
+			const folder = { id: recoveryFolderId, createdAt: new Date().toISOString() };
 			next = applyOrganizationAction(next, { action: "create-folder", name: course.title, parentId: null }, new Set(), folder);
 			folderId = folder.id;
 		}

@@ -332,6 +332,7 @@ export function Chat({
 		if (body?.course) setCourseView(unitSessionView(body.course, unitId, chatId) ?? undefined);
 	}, [unitCourseId, unitId, chatId]);
 	useServerEvent("courses-changed", (payload) => { if (payload.courseId === unitCourseId) void refreshUnitView(); });
+	useServerResync(() => void refreshUnitView());
 
 	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);

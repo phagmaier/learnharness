@@ -18,7 +18,7 @@ import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { courseInputRefusal, unitTurnCourse } from "./courses.ts";
 import { sessionExtracts } from "../core/course.ts";
-import { TEACHER_UNIT_DOCTRINE } from "../agent/course-prompts.ts";
+import { PROBER_UNIT_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "../agent/course-prompts.ts";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -63,7 +63,7 @@ import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-ser
 import { hasProbeDone, hasUnresolvedQuestion, pendingPluginQuestionOf, pluginQuestionCallsOf, questionCallsOf } from "../core/native-messages.ts";
 import { samePluginQuestionOccurrence } from "../core/plugin-questions.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
-import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight } from "./compaction.ts";
+import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens, compactionInFlight, dynamicPromptEstimate, recordDynamicPromptUsage } from "./compaction.ts";
 import { COMPACTION_RESERVE_TOKENS } from "../core/compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
@@ -82,6 +82,12 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
+
+function coursePromptTokens(course: ReturnType<typeof unitTurnCourse>, teaching: boolean): number {
+	if (!course) return 0;
+	const doctrine = teaching ? TEACHER_UNIT_DOCTRINE : PROBER_UNIT_DOCTRINE;
+	return Math.ceil((doctrine.length + course.context.length + "\n\n---\n\n\n\n".length) / 4);
+}
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -234,7 +240,7 @@ export async function handleChatInput(
 	if (closed) return Response.json({ error: closed.error }, { status: closed.status });
 	// A unit session's course section, composed fresh from the course
 	// record for this request (fork plan 04; undefined elsewhere).
-	const unitCourse = unitTurnCourse(record);
+	let unitCourse = unitTurnCourse(record);
 
 	const capturedSession = { createdAt: record.createdAt, kind: record.kind };
 	const freshSubmission = input.type === "text" || input.type === "thinking" || input.type === "answer" || input.type === "plugin-question-answer" || input.type === "plugin-problem-submission";
@@ -377,8 +383,9 @@ export async function handleChatInput(
 	const contextWindow = catalogContextLimits().get(modelIdForCompaction);
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
 	// A unit's course section rides the system prompt too (fork plan 04).
-	const courseSectionChars = unitCourse ? TEACHER_UNIT_DOCTRINE.length + unitCourse.context.length : 0;
-	const systemPromptTokens = Math.ceil((composeInstructions(record.kind === "practice" ? "practice" : "teacher").length + courseSectionChars) / 4);
+	let courseSectionTokens = coursePromptTokens(unitCourse, hasProbeDone(record.messages));
+	let systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens;
+	let dynamicPrompt = unitCourse ? dynamicPromptEstimate(chatId, courseSectionTokens) : undefined;
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -393,11 +400,11 @@ export async function handleChatInput(
 		const reportHistory = saved.length ? [...saved, ...live.filter((message) => !savedIds.has(message.id))] : live;
 		const window = sideContextWindow(reportHistory, conversationEngine.model, contextWindow, input.type === "retry");
 		const budget = window === undefined ? thresholdTokens : Math.max(1, window - Math.min(COMPACTION_RESERVE_TOKENS, conversationEngine.model.maxTokens));
-		return projectedContextTokens(live, systemPromptTokens, estimateModel) <= budget;
+		return projectedContextTokens(live, systemPromptTokens, estimateModel, dynamicPrompt) <= budget;
 	};
 	const sideBudgetError = () => new Error(SIDE_CONTEXT_BUDGET_ERROR);
 	const beforeCompaction = record.messages;
-	await ensureCompacted(
+	const compactForRequest = () => ensureCompacted(
 		{
 			chatStore: stores.chatStore,
 			engine: compactionEngine,
@@ -407,6 +414,7 @@ export async function handleChatInput(
 			includeReasoning: effective.compaction.includeReasoning,
 			thresholdTokens,
 			systemPromptTokens,
+			dynamicPrompt,
 			projectMessages: (current) => {
 				try {
 					if (input.type === "plugin-question-answer" || input.type === "plugin-problem-submission") {
@@ -441,6 +449,7 @@ export async function handleChatInput(
 		},
 		chatId,
 	);
+	await compactForRequest();
 	let pluginContributions: AgentBuildOptions["pluginContributions"];
 	if (!buildAgent) {
 		try { pluginContributions = await getPluginAgentContributions(); }
@@ -449,9 +458,23 @@ export async function handleChatInput(
 			console.error("[plugins] Agent contributions unavailable:", error);
 		}
 	}
-	const compactedRecord = stores.chatStore.getChat(chatId);
-	if (!compactedRecord) return Response.json({ error: "Unknown chat" }, { status: 404 });
-	record = compactedRecord;
+	for (;;) {
+		const compactedRecord = stores.chatStore.getChat(chatId);
+		if (!compactedRecord) return Response.json({ error: "Unknown chat" }, { status: 404 });
+		record = compactedRecord;
+		// Completion can land while preflight yields. A changed course section
+		// also needs a fresh compaction check before accepting the request.
+		const finalClosed = courseInputRefusal(record, input.type);
+		if (finalClosed) return Response.json({ error: finalClosed.error }, { status: finalClosed.status });
+		const latestCourse = unitTurnCourse(record);
+		const latestTokens = coursePromptTokens(latestCourse, hasProbeDone(record.messages));
+		if (latestCourse?.context === unitCourse?.context && latestTokens === courseSectionTokens) break;
+		unitCourse = latestCourse;
+		courseSectionTokens = latestTokens;
+		systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens;
+		dynamicPrompt = unitCourse ? dynamicPromptEstimate(chatId, courseSectionTokens) : undefined;
+		await compactForRequest();
+	}
 	// Final admission seam: every image/preflight await is over. Resolve via
 	// the SAME conversation chain, never a parallel role catalog. No await
 	// may intervene before the save-only write or beginTurn/write below.
@@ -896,6 +919,7 @@ export async function handleChatInput(
 				// merely because a local/provider refusal settled the running turn.
 				const admittedMessages = turnMessages.filter((message) => !tentativeSideIds.has((message as LhMessage).id) || admittedSideIds.has((message as LhMessage).id));
 				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, admittedMessages, isAborted);
+				if (unitCourse && (!requestCycle || requestCycle.dispatched)) recordDynamicPromptUsage(chatId, courseSectionTokens, stamped);
 				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The
@@ -965,6 +989,8 @@ export async function handleChatInput(
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
 						if (!freshRecord) return null;
+						const freshCourse = unitTurnCourse(freshRecord);
+						const freshCourseTokens = coursePromptTokens(freshCourse, hasProbeDone(freshRecord.messages));
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,
@@ -976,7 +1002,8 @@ export async function handleChatInput(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4),
+							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4) + freshCourseTokens,
+							dynamicPrompt: freshCourse ? dynamicPromptEstimate(chatId, freshCourseTokens) : undefined,
 						};
 					}, chatId);
 			},

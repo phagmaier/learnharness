@@ -30,6 +30,8 @@ const {
 	compactionInFlight,
 	effectiveThresholdTokens,
 	projectedContextTokens,
+	dynamicPromptEstimate,
+	recordDynamicPromptUsage,
 } = await import("../src/server/compaction.ts");
 import type { CompactionDeps } from "../src/server/compaction.ts";
 import { createFauxCore, fauxAssistantMessage, type ToolCall } from "@earendil-works/pi-ai";
@@ -80,6 +82,58 @@ const depsOf = (chatId: string, thresholdTokens: number): CompactionDeps => ({
 // ── the laws ────────────────────────────────────────────────────────────────
 
 describe("the compaction service", () => {
+	it("adds dynamic prompt growth to measured usage without recounting a known prompt", () => {
+		const assistant = { ...fauxAssistantMessage("answer"), id: "course-anchor",
+			usage: { input: 10_000, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 10_100 },
+		} as LhMessage;
+		const previous = { messageId: assistant.id, tokens: 1_000 };
+		assert.equal(projectedContextTokens([assistant], 3_100, undefined, { tokens: 3_000, previous }), 12_100, "2k of growth beyond the earlier 1k course section");
+		assert.equal(projectedContextTokens([assistant], 1_100, undefined, { tokens: 1_000, previous }), 10_100, "unchanged context is already measured");
+		assert.equal(projectedContextTokens([assistant], 600, undefined, { tokens: 500, previous }), 10_100, "shrinking never reduces a provider measurement heuristically");
+		assert.equal(projectedContextTokens([assistant], 3_100, undefined, { tokens: 3_000 }), 13_100, "unknown pre-restart prompts conservatively count the whole current section");
+		assert.equal(projectedContextTokens([assistant], 3_100, undefined, { tokens: 3_000, previous: { messageId: "different-response", tokens: 1_000 } }), 13_100, "a baseline belongs to its response only");
+		const live = { ...assistant };
+		delete (live as { id?: string }).id;
+		assert.equal(projectedContextTokens([live], 3_100, undefined, { tokens: 3_000, previous }), 10_100, "a new unsaved response measures this run's current prompt");
+		assert.equal(projectedContextTokens([newUserMessage("abcd")], 3_100, undefined, { tokens: 3_000, previous }), 3_101, "without an anchor the full prompt is added once");
+	});
+
+	it("both compaction entrypoints trigger when a course section outgrows the usage anchor", async () => {
+		for (const entrypoint of ["gate", "kick"]) {
+			const chat = chatStore.createChat(`dynamic course prompt ${entrypoint}`);
+			const anchor = { ...fauxAssistantMessage("answer"), id: "growing-course-anchor",
+				usage: { input: 149_000, output: 1_000, cacheRead: 0, cacheWrite: 0, totalTokens: 150_000 },
+			} as LhMessage;
+			const messages = [big("older material", 120), big("later material", 120), anchor];
+			chatStore.saveMessages(chat.id, messages);
+			let calls = 0;
+			const deps: CompactionDeps = { ...depsOf(chat.id, 152_000), systemPromptTokens: 5_100,
+				dynamicPrompt: { tokens: 5_000, previous: { messageId: anchor.id, tokens: 1_000 } },
+				summarize: async () => { calls++; return { summary: "The earlier material.", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }; },
+			};
+			if (entrypoint === "gate") await ensureCompacted(deps, chat.id);
+			else { kickCompaction(() => deps, chat.id); await awaitCompaction(chat.id); }
+			const saved = chatStore.getChat(chat.id)!.messages;
+			assert.equal(calls, 1);
+			assert.equal(activeCompactionOf(saved)!.details.tokensBefore, 154_000);
+			assert.deepEqual(saved.slice(0, -1), messages, "compaction preserves the transcript");
+		}
+	});
+
+	it("retains a measured prompt baseline across failed turns and counts the full prompt once after compaction", () => {
+		const chat = chatStore.createChat("dynamic prompt bookkeeping");
+		const anchor = { ...fauxAssistantMessage("answer"), id: "measured-prompt",
+			usage: { input: 10_000, output: 100, cacheRead: 0, cacheWrite: 0, totalTokens: 10_100 },
+		} as LhMessage;
+		recordDynamicPromptUsage(chat.id, 1_000, [anchor]);
+		for (const stopReason of ["error", "aborted"] as const) {
+			recordDynamicPromptUsage(chat.id, 3_000, [{ ...anchor, id: `failed-${stopReason}`, stopReason } as LhMessage]);
+			assert.equal(projectedContextTokens([anchor], 3_100, undefined, dynamicPromptEstimate(chat.id, 3_000)), 12_100);
+		}
+		const marker = newCompactionMarker("A summary.", { firstKeptMessageId: anchor.id, tokensBefore: 12_100, at: "fixture" });
+		assert.equal(projectedContextTokens([anchor, marker], 3_100, undefined, dynamicPromptEstimate(chat.id, 3_000)), projectedContextTokens([anchor, marker], 3_100), "the post-cut heuristic already adds the entire prompt");
+	});
+
 	it("compares identical pre-compaction snapshots with reasoning accounting off and on", async (t) => {
 		// A controlled comparison, not a claim about actual provider input tokens.
 		// Both modes compact; the snapshot, model, threshold and summary are fixed.
