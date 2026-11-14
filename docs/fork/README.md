@@ -248,7 +248,7 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 ### Books
 
-**Status:** designed 2026-11-12; no implementation plan yet. Built right after course phase 1 (see build order below).
+**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items; not yet implemented. Built right after course phase 1 (see build order below).
 
 **Problem (human):** to study a specific text (e.g. Hegel's *Phenomenology of Spirit*), the learner wants to add the book. The whole book should never sit in context, but it should be reachable when needed.
 
@@ -262,7 +262,22 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 - *Passages in lessons.* The teacher quotes short key passages verbatim, each with a clickable citation (§187, p. 114) that opens an in-app book reader at that spot, and teaches through the quote (e.g. a prediction before the explanation).
 - *No graph extraction at import.* What is taught from the book enters the graph through normal session extraction. The existing "Extract files" remains available for whole-book extraction.
 
-**Still open (settle when planning):** the map's size budget and how much of it each unit receives; handling books without clear structure; the reader view's layout; how quotes are kept verbatim (validated against the stored text).
+**Decided (2026-11-14, human, in the step 5 planning interview; details in [plan 05](plans/05-books.md)):** this settles the four questions left open on 2026-11-12.
+- *Verbatim quotes:* the teacher quotes through a tool that checks the passage against the stored text and refuses a mismatch back to the teacher. The chat shows a quote card whose text comes from the stored book, with a clickable citation.
+- *Map in prompts:* every turn gets the whole-book outline down to section headings with one-line summaries (about 3k tokens at most; deeper levels collapse). A course unit also gets full detail (summaries and key terms) for its own reading (about 4k tokens at most). The rest is reached through a map tool, then read or searched.
+- *Books without detectable structure:* split at paragraph breaks into app-made parts of about 2,000 words, titled by the Cheap model with their summaries, marked "Divided by the app". Citations then use pages (PDF) or part numbers, never invented §s.
+- *Reader:* a citation opens a resizable panel beside the chat at the passage, highlighted: reflowed stored text, a contents list, section and page labels, and "Show original page" for PDFs. "Open full page" goes to `/books/<id>`; narrow windows get the full page.
+- *Attaching:* at most one book per course or Teach session, chosen when it starts. A course follows it or keeps it as reference.
+- *Unit readings:* each unit of a course that follows its book has a reading (one or more contiguous map ranges, or none), shown and editable with a contents picker in the setup card and "Edit units". The overview shows the parts no unit reads. Teacher proposals that insert or merge units carry readings.
+- *Who reads the book:* the prober, teacher, setup agent, and the "Practice this unit" practitioner (which can pose problems on a quoted passage). Note and handoff writers work from the transcript's quote cards. Standalone Practice sessions have no book.
+- *Side questions* stay tool-less. One asked on a message with quote cards gets each quoted passage's surrounding text (about 2k tokens) and the book's outline in its prompt. (The human first chose book tools for side questions, then chose this once told side questions have no tool loop.)
+- *Deleting a book* is refused while any course or session uses it, listing them; afterwards it removes the copy and map.
+- *Import flow (the human's request after the first draft):* anything that can be done without a model is done without one.
+  - The contents (index) are always found without a model, and the app judges its own confidence.
+  - Confident contents are accepted automatically and shown.
+  - Unsure ones stop at "Check the contents" ("Looks right" / "Not right"). "Not right" first offers the other methods that need no model. Only after that does it offer, and ask before running, a model pass over a compact digest of candidate headings, never the whole book.
+  - A broken file (unreadable, no text layer, garbled text) is refused with a plain explanation and no model call.
+- *Summaries* are written automatically by the Cheap model once the contents are accepted, as originally designed, with Stop available. Books under about 20,000 words get no summaries; the agent reads their text directly.
 
 ### Model pickers and Claude Code discovery
 
@@ -303,7 +318,7 @@ Each item gets its own implementation plan, approved before work starts.
 2. *(Done 2026-11-12; see [plan 02](plans/02-fork-identity-packaging.md), items 1–5.)* **Fork identity:** LearnHarness Fork name and data folder, one-time data copy, updater off, and a local AppImage build. These only take effect in a packaged build; dev runs are unchanged.
 3. *(Done 2026-11-13; see [plan 03](plans/03-notes-and-export.md).)* **Phase 0:** on-demand HTML notes and conversation export.
 4. *(Approved 2026-11-13; implemented 2026-11-14, awaiting the human checks below; see [plan 04](plans/04-courses-and-units.md).)* **Phase 1:** courses and units.
-5. **Books.**
+5. *(Approved 2026-11-14; see [plan 05](plans/05-books.md).)* **Books.**
 6. **Phase 2:** mastery gates.
 7. **Phase 3:** competency and weak points.
 8. **Release and install:** publish a fork release and install it through Hermes (plan 02, items 6–7, re-planned when this step starts). Until then the human keeps learning in upstream LearnHarness, and the fork runs only in dev against the repo's data.
