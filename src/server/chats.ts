@@ -164,12 +164,14 @@ function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatD
 
 function finishChatRecordDeletion(chatId: string): number {
 	const jobsRemoved = stores.jobStore.deleteJobsForChat(chatId);
+	// Read before the record goes: a unit session's notes live in its course.
+	const courseLink = stores.chatStore.getChat(chatId)?.course;
 	if (stores.chatStore.deleteChat(chatId)) {
 		discardChatDeliveries(chatId);
 		clearTurnFailure(chatId);
 		sideChats.stopAll(chatId); // a running side answer has nowhere left to land
-		// Fork plan 03: the session's notes go with it (writers stopped first).
-		deleteSessionNotes(chatId);
+		// Fork plans 03/04: the session's notes go with it (writers stopped first).
+		deleteSessionNotes(chatId, courseLink);
 	}
 	return jobsRemoved;
 }

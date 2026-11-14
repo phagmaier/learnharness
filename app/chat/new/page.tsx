@@ -1,5 +1,5 @@
 import { NewSession } from "@/components/new-session";
-import { readSettingsRecord } from "@/src/server";
+import { readSettingsRecord, unitPracticeAttachment } from "@/src/server";
 import { slotsConfigured } from "@/src/core";
 
 export const dynamic = "force-dynamic";
@@ -18,13 +18,19 @@ export const dynamic = "force-dynamic";
 export default async function NewSessionPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ mode?: string }>;
+	searchParams: Promise<{ mode?: string; course?: string; unit?: string }>;
 }) {
-	const { mode } = await searchParams;
+	const { mode, course, unit } = await searchParams;
+	const draftMode = mode === "practice" || mode === "course" ? mode : "teach";
+	// "Practice this unit" (fork plan 04 item 8): ?course=&unit= attaches a
+	// started unit to the practice draft; an unknown one opens it plain.
+	const attached = draftMode === "practice" && course && unit ? unitPracticeAttachment(course, unit) : null;
 	return (
 		<NewSession
+			key={`${draftMode}:${attached ? `${attached.courseId}:${attached.unitId}` : ""}`}
 			initialConfigured={slotsConfigured(readSettingsRecord()?.models)}
-			mode={mode === "practice" || mode === "course" ? mode : "teach"}
+			mode={draftMode}
+			initialUnit={attached}
 		/>
 	);
 }

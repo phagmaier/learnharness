@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, DownloadIcon, FileCodeIcon, NotebookPenIcon, PlusIcon, RefreshCwIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { TopBar } from "@/components/top-bar";
@@ -18,6 +18,9 @@ import type { NoteEntry } from "@/src/core";
  * frame. Plain notes never run scripts; interactive notes run theirs, and no
  * note shares the app's origin. Notes are written in the background; the
  * page refetches on notes-changed.
+ *
+ * A course's Notes tab (fork plan 04 item 8) is the same workspace with the
+ * notes grouped under unit headings and a unit picker in "New note".
  */
 
 export type NoteView = NoteEntry & { costUsd?: number | null };
@@ -229,31 +232,166 @@ async function errorOf(response: Response): Promise<string> {
 	return body?.error ?? `Request failed (${response.status})`;
 }
 
-export function NotesPage({
-	chatId,
-	title,
-	initialNotes,
-	initialError = null,
-}: {
+/** One section of the note list: one session's notes. A course's Notes
+ *  tab has one per started unit, headed "<n>. <title>" (fork plan 04
+ *  item 8); a session's notes page has a single unheaded one. */
+export interface NotesGroup {
 	chatId: string;
-	title: string;
-	initialNotes: NoteView[];
-	initialError?: string | null;
+	heading?: string;
+	notes: NoteView[];
+	/** This session's notes index can't be read. */
+	error?: string | null;
+}
+
+/** Course Notes tab wording (agent-selected, plan 04 item 8). */
+export const UNIT_PICKER_LABEL = "Unit";
+export const UNIT_NO_NOTES = "No notes yet";
+export const UNIT_EMPTY_NOTES = "No notes for this unit yet.";
+export const COURSE_NO_UNITS = "No unit has started yet.";
+
+/** The selection: a session (a course's unit) and, within it, a note.
+ *  A missing or unknown note falls back to the session's newest. */
+export interface NotesSelection { chatId: string | null; noteId: string | null }
+
+/** Where the page opens: the requested session's newest note, else the
+ *  newest note anywhere, else the last session listed. */
+export function initialNotesSelection(groups: readonly NotesGroup[], chatId?: string | null): NotesSelection {
+	const requested = chatId ? groups.find((group) => group.chatId === chatId) : undefined;
+	if (requested) return { chatId: requested.chatId, noteId: sortNotes(requested.notes)[0]?.id ?? null };
+	let newest: { chatId: string; note: NoteView } | null = null;
+	for (const group of groups) {
+		const top = sortNotes(group.notes)[0];
+		if (top && (!newest || top.createdAt > newest.note.createdAt)) newest = { chatId: group.chatId, note: top };
+	}
+	if (newest) return { chatId: newest.chatId, noteId: newest.note.id };
+	return { chatId: groups.at(-1)?.chatId ?? null, noteId: null };
+}
+
+/** The selected session and note as currently listed. */
+export function resolveNotesSelection(groups: readonly NotesGroup[], selection: NotesSelection): { group: NotesGroup | null; note: NoteView | null } {
+	const group = groups.find((candidate) => candidate.chatId === selection.chatId)
+		?? groups.find((candidate) => candidate.chatId === initialNotesSelection(groups).chatId)
+		?? null;
+	if (!group) return { group: null, note: null };
+	const sorted = sortNotes(group.notes);
+	return { group, note: sorted.find((note) => note.id === selection.noteId) ?? sorted[0] ?? null };
+}
+
+const api = (chatId: string) => `/api/chats/${encodeURIComponent(chatId)}/notes`;
+
+/** The unit picker of a course's "New note" form. */
+export function NoteUnitPicker({ groups, value, disabled, onChange }: {
+	groups: readonly NotesGroup[];
+	value: string;
+	disabled?: boolean;
+	onChange: (chatId: string) => void;
 }) {
-	const [notes, setNotes] = useState<NoteView[]>(initialNotes);
+	return (
+		<label className="flex items-center gap-2 text-xs text-muted-foreground">
+			<span className="shrink-0">{UNIT_PICKER_LABEL}</span>
+			<select
+				data-testid="note-unit"
+				value={value}
+				disabled={disabled}
+				onChange={(event) => onChange(event.target.value)}
+				className="lh-input min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:border-muted-foreground"
+			>
+				{groups.map((group) => <option key={group.chatId} value={group.chatId}>{group.heading ?? group.chatId}</option>)}
+			</select>
+		</label>
+	);
+}
+
+/** The note list: one session's rows, or a course's rows under unit
+ *  headings in course order (a heading selects its unit). */
+export function NoteGroupsList({ groups, selection, onSelect }: {
+	groups: readonly NotesGroup[];
+	selection: { chatId: string | null; noteId: string | null };
+	onSelect: (selection: NotesSelection) => void;
+}) {
+	return (
+		<>
+			{groups.map((group) => {
+				const rows = sortNotes(group.notes).map((note) => (
+					<NoteListRow
+						key={note.id}
+						note={note}
+						selected={group.chatId === selection.chatId && note.id === selection.noteId}
+						onSelect={() => onSelect({ chatId: group.chatId, noteId: note.id })}
+					/>
+				));
+				if (group.heading === undefined) {
+					return (
+						<div key={group.chatId}>
+							{group.error && <p role="alert" className="px-2 py-1 text-xs text-error">{group.error}</p>}
+							{rows}
+						</div>
+					);
+				}
+				const current = group.chatId === selection.chatId;
+				return (
+					<section key={group.chatId} data-testid="notes-unit-group" data-chat-id={group.chatId} className="mb-2">
+						<button
+							type="button"
+							data-testid="notes-unit"
+							aria-current={current ? "true" : undefined}
+							onClick={() => onSelect({ chatId: group.chatId, noteId: null })}
+							className={cn(
+								"w-full truncate rounded-md px-2.5 py-1.5 text-left font-ui text-[11px] uppercase tracking-wider transition-colors hover:bg-accent",
+								current ? "text-foreground" : "text-muted-foreground",
+							)}
+						>
+							{group.heading}
+						</button>
+						{group.error && <p role="alert" className="px-2.5 py-1 text-xs text-error">{group.error}</p>}
+						{rows.length > 0 ? rows : !group.error && <p data-testid="notes-unit-empty" className="px-2.5 pb-1 text-xs text-muted-foreground/80">{UNIT_NO_NOTES}</p>}
+					</section>
+				);
+			})}
+		</>
+	);
+}
+
+/**
+ * The notes workspace both notes pages share: the list and "New note" on
+ * the left, the selected note on the right. A course's Notes tab adds unit
+ * headings and a unit picker; every action goes to the note's own session
+ * (/api/chats/:chatId/notes…). `load` refetches the groups; the page
+ * refetches on notes-changed for a listed session, and (for a course) on
+ * courses-changed.
+ */
+export function NotesWorkspace({
+	topBar,
+	initialGroups,
+	initialError = null,
+	initialChatId = null,
+	load,
+	courseId,
+}: {
+	topBar: ReactNode;
+	initialGroups: NotesGroup[];
+	initialError?: string | null;
+	/** The session (unit) selected on arrival. */
+	initialChatId?: string | null;
+	load: () => Promise<NotesGroup[] | { error: string } | null>;
+	/** A course's Notes tab: also refetch when the course changes. */
+	courseId?: string;
+}) {
+	const [groups, setGroups] = useState<NotesGroup[]>(initialGroups);
 	const [loadError, setLoadError] = useState<string | null>(initialError);
-	const sorted = useMemo(() => sortNotes(notes), [notes]);
-	const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
-	const selected = sorted.find((note) => note.id === selectedId) ?? sorted[0] ?? null;
+	const grouped = groups.some((group) => group.heading !== undefined);
+	const [selection, setSelection] = useState<NotesSelection>(() => initialNotesSelection(initialGroups, initialChatId));
+	const { group: selectedGroup, note: selected } = resolveNotesSelection(groups, selection);
+	const selectedChatId = selectedGroup?.chatId ?? null;
 
 	const [composing, setComposing] = useState(false);
-	const [draft, setDraft] = useState({ instruction: "", interactive: false });
+	const [draft, setDraft] = useState({ instruction: "", interactive: false, chatId: "" });
 	const [creating, setCreating] = useState(false);
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [rewrite, setRewrite] = useState<{ instruction: string; interactive: boolean } | null>(null);
 	const [rewriteBusy, setRewriteBusy] = useState(false);
 	const [actionError, setActionError] = useState<string | null>(null);
-	const [deleting, setDeleting] = useState<NoteView | null>(null);
+	const [deleting, setDeleting] = useState<{ chatId: string; note: NoteView } | null>(null);
 	const [exporting, setExporting] = useState(false);
 	const [inverted, setInverted] = useState(false);
 
@@ -271,18 +409,21 @@ export function NotesPage({
 
 	const refresh = useCallback(async () => {
 		try {
-			const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes`, { cache: "no-store" });
-			if (!response.ok) {
-				setLoadError(await errorOf(response));
+			const result = await load();
+			if (!result) return;
+			if ("error" in result) {
+				setLoadError(result.error);
 				return;
 			}
-			const body = (await response.json()) as { notes: NoteView[] };
-			setNotes(body.notes);
+			setGroups(result);
 			setLoadError(null);
 		} catch { /* offline: the next event or resync refetches */ }
-	}, [chatId]);
+	}, [load]);
 	useServerEvent("notes-changed", (payload) => {
-		if (payload.chatId === chatId) void refresh();
+		if (groups.some((group) => group.chatId === payload.chatId)) void refresh();
+	});
+	useServerEvent("courses-changed", (payload) => {
+		if (courseId && payload.courseId === courseId) void refresh();
 	});
 	useServerResync(() => void refresh());
 
@@ -292,24 +433,38 @@ export function NotesPage({
 		setActionError(null);
 	}, [selected?.id]);
 
+	const addNote = (chatId: string, note: NoteView) => setGroups((current) => current.map((group) => group.chatId === chatId && !group.notes.some((n) => n.id === note.id)
+		? { ...group, notes: [...group.notes, note] }
+		: group));
+	const dropNote = (chatId: string, noteId: string) => setGroups((current) => current.map((group) => group.chatId === chatId
+		? { ...group, notes: group.notes.filter((note) => note.id !== noteId) }
+		: group));
+
+	const openComposer = () => {
+		setDraft((current) => ({ ...current, chatId: selectedChatId ?? groups[0]?.chatId ?? "" }));
+		setComposing(true);
+	};
+
 	const createNote = async () => {
+		const chatId = draft.chatId || selectedChatId;
+		if (!chatId) return;
 		setCreating(true);
 		setCreateError(null);
 		try {
-			const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes`, {
+			const response = await fetch(api(chatId), {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify(draft),
+				body: JSON.stringify({ instruction: draft.instruction, interactive: draft.interactive }),
 			});
 			if (!response.ok) {
 				setCreateError(await errorOf(response));
 				return;
 			}
 			const { note } = (await response.json()) as { note: NoteView };
-			setNotes((current) => (current.some((n) => n.id === note.id) ? current : [...current, note]));
-			setSelectedId(note.id);
+			addNote(chatId, note);
+			setSelection({ chatId, noteId: note.id });
 			setComposing(false);
-			setDraft({ instruction: "", interactive: false });
+			setDraft({ instruction: "", interactive: false, chatId: "" });
 			void refresh();
 		} catch {
 			setCreateError("Couldn't reach the app. Try again.");
@@ -318,11 +473,11 @@ export function NotesPage({
 		}
 	};
 
-	const regenerate = async (note: NoteView, request: { instruction: string; interactive: boolean }) => {
+	const regenerate = async (chatId: string, note: NoteView, request: { instruction: string; interactive: boolean }) => {
 		setRewriteBusy(true);
 		setActionError(null);
 		try {
-			const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes/${encodeURIComponent(note.id)}/regenerate`, {
+			const response = await fetch(`${api(chatId)}/${encodeURIComponent(note.id)}/regenerate`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(request),
@@ -340,30 +495,31 @@ export function NotesPage({
 		}
 	};
 
-	const stop = async (note: NoteView) => {
-		await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes/${encodeURIComponent(note.id)}/stop`, { method: "POST" }).catch(() => undefined);
+	const stop = async (chatId: string, note: NoteView) => {
+		await fetch(`${api(chatId)}/${encodeURIComponent(note.id)}/stop`, { method: "POST" }).catch(() => undefined);
 		void refresh();
 	};
 
 	const confirmDelete = async () => {
 		if (!deleting) return;
-		const target = deleting;
+		const { chatId, note: target } = deleting;
 		setDeleting(null);
 		setActionError(null);
-		const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/notes/${encodeURIComponent(target.id)}`, { method: "DELETE" }).catch(() => null);
+		const response = await fetch(`${api(chatId)}/${encodeURIComponent(target.id)}`, { method: "DELETE" }).catch(() => null);
 		if (!response || (!response.ok && response.status !== 404)) {
 			setActionError(response ? await errorOf(response) : "Couldn't reach the app. Try again.");
 			return;
 		}
-		setNotes((current) => current.filter((note) => note.id !== target.id));
+		dropNote(chatId, target.id);
 		void refresh();
 	};
 
 	const exportConversation = async () => {
+		if (!selectedChatId) return;
 		setExporting(true);
 		setActionError(null);
 		try {
-			const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}/export.html`, { cache: "no-store" });
+			const response = await fetch(`/api/chats/${encodeURIComponent(selectedChatId)}/export.html`, { cache: "no-store" });
 			if (!response.ok) {
 				setActionError(await errorOf(response));
 				return;
@@ -382,9 +538,144 @@ export function NotesPage({
 		}
 	};
 
+	const emptyText = !grouped ? EMPTY_NOTES : selectedGroup ? UNIT_EMPTY_NOTES : COURSE_NO_UNITS;
+
 	return (
 		<div className="flex h-dvh">
 			<div className="flex min-w-0 flex-1 flex-col">
+				{topBar}
+
+				<div className="flex min-h-0 flex-1">
+					<aside data-testid="notes-list" className="flex w-80 shrink-0 flex-col border-r border-border">
+						<div className="border-b border-border/60 p-3">
+							{composing ? (
+								<div className="flex flex-col gap-2">
+									{grouped && (
+										<NoteUnitPicker
+											groups={groups}
+											value={draft.chatId || selectedChatId || ""}
+											disabled={creating}
+											onChange={(chatId) => setDraft((d) => ({ ...d, chatId }))}
+										/>
+									)}
+									<NoteRequestForm
+										instruction={draft.instruction}
+										interactive={draft.interactive}
+										busy={creating}
+										submitLabel="Write note"
+										error={createError}
+										onInstruction={(instruction) => setDraft((d) => ({ ...d, instruction }))}
+										onInteractive={(interactive) => setDraft((d) => ({ ...d, interactive }))}
+										onSubmit={() => void createNote()}
+										onCancel={() => { setComposing(false); setCreateError(null); }}
+									/>
+								</div>
+							) : (
+								<button
+									type="button"
+									data-testid="note-new"
+									onClick={openComposer}
+									disabled={groups.length === 0}
+									className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+								>
+									<PlusIcon className="size-3.5" aria-hidden />
+									New note
+								</button>
+							)}
+						</div>
+						<div className="min-h-0 flex-1 overflow-y-auto p-2">
+							{loadError && <p role="alert" className="px-2 py-1 text-xs text-error">{loadError}</p>}
+							<NoteGroupsList
+								groups={groups}
+								selection={{ chatId: selectedChatId, noteId: selected?.id ?? null }}
+								onSelect={setSelection}
+							/>
+						</div>
+						<div className="border-t border-border/60 p-3">
+							<button
+								type="button"
+								data-testid="notes-export"
+								onClick={() => void exportConversation()}
+								disabled={exporting || !selectedChatId}
+								className="flex w-full items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+							>
+								<FileCodeIcon className="size-3.5" aria-hidden />
+								{exporting ? "Exporting…" : "Export conversation (HTML)"}
+							</button>
+						</div>
+					</aside>
+
+					<section data-testid="note-pane" className="flex min-w-0 flex-1 flex-col">
+						{actionError && <p role="alert" className="border-b border-border/60 px-4 py-2 text-xs text-error">{actionError}</p>}
+						{!selected || !selectedChatId ? (
+							<div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+								<NotebookPenIcon className="size-5" aria-hidden />
+								<p data-testid="notes-empty">{emptyText}</p>
+							</div>
+						) : (
+							<NotePane
+								chatId={selectedChatId}
+								note={selected}
+								inverted={inverted}
+								onInverted={toggleInverted}
+								rewrite={rewrite}
+								rewriteBusy={rewriteBusy}
+								onRewriteOpen={() => setRewrite({ instruction: selected.instruction, interactive: selected.interactive })}
+								onRewriteChange={setRewrite}
+								onRewriteSubmit={(request) => void regenerate(selectedChatId, selected, request)}
+								onRetry={() => void regenerate(selectedChatId, selected, { instruction: selected.instruction, interactive: selected.interactive })}
+								onStop={() => void stop(selectedChatId, selected)}
+								onDelete={() => setDeleting({ chatId: selectedChatId, note: selected })}
+							/>
+						)}
+					</section>
+				</div>
+			</div>
+			<HostDialog
+				open={deleting !== null}
+				onClose={() => { setDeleting(null); return "closed"; }}
+				backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}
+				frame={<div role="dialog" aria-modal="true" aria-label="Delete note" data-testid="delete-note-dialog" className="w-[26rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl" />}
+			>
+				<h2 className="text-sm font-semibold text-destructive">{DELETE_NOTE_QUESTION}</h2>
+				{deleting?.note.title && <p className="mt-1.5 font-mono text-sm text-foreground">{deleting.note.title}</p>}
+				<div className="mt-4 flex justify-end gap-2">
+					<button type="button" data-testid="delete-note-cancel" onClick={() => setDeleting(null)} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+						Cancel
+					</button>
+					<button type="button" data-testid="delete-note-confirm" onClick={() => void confirmDelete()} className="rounded-lg border border-destructive/60 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive hover:text-white">
+						Delete
+					</button>
+				</div>
+			</HostDialog>
+		</div>
+	);
+}
+
+/** The notes page of one Teach session. */
+export function NotesPage({
+	chatId,
+	title,
+	initialNotes,
+	initialError = null,
+}: {
+	chatId: string;
+	title: string;
+	initialNotes: NoteView[];
+	initialError?: string | null;
+}) {
+	const load = useCallback(async (): Promise<NotesGroup[] | { error: string }> => {
+		const response = await fetch(api(chatId), { cache: "no-store" });
+		if (!response.ok) return { error: await errorOf(response) };
+		const body = (await response.json()) as { notes: NoteView[] };
+		return [{ chatId, notes: body.notes }];
+	}, [chatId]);
+	return (
+		<NotesWorkspace
+			load={load}
+			initialGroups={[{ chatId, notes: initialNotes }]}
+			initialError={initialError}
+			topBar={
 				<TopBar>
 					<span className="min-w-0 shrink truncate font-title text-3xl tracking-tight">{title}</span>
 					<span className="shrink-0 font-ui text-sm uppercase tracking-wide text-muted-foreground" aria-hidden="true">› Notes</span>
@@ -398,98 +689,8 @@ export function NotesPage({
 						Back to chat
 					</Link>
 				</TopBar>
-
-				<div className="flex min-h-0 flex-1">
-					<aside data-testid="notes-list" className="flex w-80 shrink-0 flex-col border-r border-border">
-						<div className="border-b border-border/60 p-3">
-							{composing ? (
-								<NoteRequestForm
-									instruction={draft.instruction}
-									interactive={draft.interactive}
-									busy={creating}
-									submitLabel="Write note"
-									error={createError}
-									onInstruction={(instruction) => setDraft((d) => ({ ...d, instruction }))}
-									onInteractive={(interactive) => setDraft((d) => ({ ...d, interactive }))}
-									onSubmit={() => void createNote()}
-									onCancel={() => { setComposing(false); setCreateError(null); }}
-								/>
-							) : (
-								<button
-									type="button"
-									data-testid="note-new"
-									onClick={() => setComposing(true)}
-									className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-								>
-									<PlusIcon className="size-3.5" aria-hidden />
-									New note
-								</button>
-							)}
-						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto p-2">
-							{loadError && <p role="alert" className="px-2 py-1 text-xs text-error">{loadError}</p>}
-							{sorted.map((note) => (
-								<NoteListRow key={note.id} note={note} selected={note.id === selected?.id} onSelect={() => setSelectedId(note.id)} />
-							))}
-						</div>
-						<div className="border-t border-border/60 p-3">
-							<button
-								type="button"
-								data-testid="notes-export"
-								onClick={() => void exportConversation()}
-								disabled={exporting}
-								className="flex w-full items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
-							>
-								<FileCodeIcon className="size-3.5" aria-hidden />
-								{exporting ? "Exporting…" : "Export conversation (HTML)"}
-							</button>
-						</div>
-					</aside>
-
-					<section data-testid="note-pane" className="flex min-w-0 flex-1 flex-col">
-						{actionError && <p role="alert" className="border-b border-border/60 px-4 py-2 text-xs text-error">{actionError}</p>}
-						{!selected ? (
-							<div className="flex flex-1 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-								<NotebookPenIcon className="size-5" aria-hidden />
-								<p data-testid="notes-empty">{EMPTY_NOTES}</p>
-							</div>
-						) : (
-							<NotePane
-								chatId={chatId}
-								note={selected}
-								inverted={inverted}
-								onInverted={toggleInverted}
-								rewrite={rewrite}
-								rewriteBusy={rewriteBusy}
-								onRewriteOpen={() => setRewrite({ instruction: selected.instruction, interactive: selected.interactive })}
-								onRewriteChange={setRewrite}
-								onRewriteSubmit={(request) => void regenerate(selected, request)}
-								onRetry={() => void regenerate(selected, { instruction: selected.instruction, interactive: selected.interactive })}
-								onStop={() => void stop(selected)}
-								onDelete={() => setDeleting(selected)}
-							/>
-						)}
-					</section>
-				</div>
-			</div>
-			<HostDialog
-				open={deleting !== null}
-				onClose={() => { setDeleting(null); return "closed"; }}
-				backdropProps={{ className: "fixed inset-0 z-50 flex items-center justify-center bg-background/80" }}
-				frame={<div role="dialog" aria-modal="true" aria-label="Delete note" data-testid="delete-note-dialog" className="w-[26rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl" />}
-			>
-				<h2 className="text-sm font-semibold text-destructive">{DELETE_NOTE_QUESTION}</h2>
-				{deleting?.title && <p className="mt-1.5 font-mono text-sm text-foreground">{deleting.title}</p>}
-				<div className="mt-4 flex justify-end gap-2">
-					<button type="button" data-testid="delete-note-cancel" onClick={() => setDeleting(null)} className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-						Cancel
-					</button>
-					<button type="button" data-testid="delete-note-confirm" onClick={() => void confirmDelete()} className="rounded-lg border border-destructive/60 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive hover:text-white">
-						Delete
-					</button>
-				</div>
-			</HostDialog>
-		</div>
+			}
+		/>
 	);
 }
 
@@ -547,7 +748,7 @@ export function NotePane({
 	].filter(Boolean).join(" · ");
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			<div className="flex items-center gap-1 border-b border-border/60 px-3 py-1.5">
+			<div className="flex flex-wrap items-center gap-1 border-b border-border/60 px-3 py-1.5">
 				<Toggle checked={inverted} onChange={onInverted} label="Invert note colors" title="Invert colors" discIcon={<InvertDiscIcon className="size-3" />} />
 				<div className="flex-1" />
 				<a

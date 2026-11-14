@@ -8,11 +8,13 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 /**
  * The session top bar's "Notes" chip (fork plan 03 item 4): opens the
  * session's notes page, at any phase, with the note count once notes exist.
+ * A course unit's chip opens the course's Notes tab with the unit selected
+ * instead (fork plan 04 item 8), passed as `href`.
  */
-export function NotesChip({ chatId, count }: { chatId: string; count: number }) {
+export function NotesChip({ chatId, count, href }: { chatId: string; count: number; href?: string }) {
 	return (
 		<Link
-			href={`/chat/${encodeURIComponent(chatId)}/notes`}
+			href={href ?? `/chat/${encodeURIComponent(chatId)}/notes`}
 			data-testid="notes-chip"
 			aria-label={count > 0 ? `Notes (${count})` : "Notes"}
 			className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/80 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:border-border hover:text-foreground"
@@ -25,7 +27,7 @@ export function NotesChip({ chatId, count }: { chatId: string; count: number }) 
 }
 
 /** The chip with its live count (refetched on notes-changed). */
-export function SessionNotesChip({ chatId }: { chatId: string }) {
+export function SessionNotesChip({ chatId, href }: { chatId: string; href?: string }) {
 	const [count, setCount] = useState(0);
 	const refresh = useCallback(async () => {
 		try {
@@ -40,5 +42,5 @@ export function SessionNotesChip({ chatId }: { chatId: string }) {
 		if (payload.chatId === chatId) void refresh();
 	});
 	useServerResync(() => void refresh());
-	return <NotesChip chatId={chatId} count={count} />;
+	return <NotesChip chatId={chatId} count={count} href={href} />;
 }

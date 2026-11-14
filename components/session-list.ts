@@ -26,6 +26,16 @@ export function courseHref(courseId: string, unitId?: string): string {
 	return `/course/${encodeURIComponent(courseId)}${unitId ? `#unit-${unitId}` : ""}`;
 }
 
+/** The course's Notes tab (fork plan 04 item 8), with a unit selected. */
+export function courseNotesHref(courseId: string, unitId?: string): string {
+	return `/course/${encodeURIComponent(courseId)}/notes${unitId ? `?unit=${encodeURIComponent(unitId)}` : ""}`;
+}
+
+/** "Practice this unit": the practice draft with the unit attached. */
+export function unitPracticeHref(courseId: string, unitId: string): string {
+	return `/chat/new?mode=practice&course=${encodeURIComponent(courseId)}&unit=${encodeURIComponent(unitId)}`;
+}
+
 /** Ids of the sessions every course groups. */
 export function courseMemberIds(courses: readonly CourseSummary[]): Set<string> {
 	const ids = new Set<string>();

@@ -9,16 +9,16 @@
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
 import type { ChatCourseLink, ChatRecord, ChatSummary, CourseChange, CourseEvidence, CourseProposal, CourseRecord, CourseSummary, CourseUnit, SessionCourseView, UnitHandoff } from "../core/contracts.ts";
-import { applyCourseChanges, applyUnitEdit, courseChangeLine, draftProblems, latestProposalCallId, proposalRevisionId, REPLACED_PROPOSAL_REASON, sessionHandoffTopics, uniqueUnitId, unitCompletionOf, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
+import { applyCourseChanges, applyUnitEdit, courseChangeLine, draftProblems, latestProposalCallId, proposalRevisionId, REPLACED_PROPOSAL_REASON, sessionHandoffTopics, uniqueUnitId, unitCompletionOf, unitCourseContext, unitEditSummary, unitPracticeContext, unitSessionView, type UnitDraft } from "../core/course.ts";
 import { sessionAnswerEvidence, sessionPracticeEvidence } from "../core/course-evidence.ts";
-import { newUnitStartMessage } from "../core/native-messages.ts";
+import { newUnitPracticeMessage, newUnitStartMessage, type GraphContextPick, type LhMarkerMessage } from "../core/native-messages.ts";
 import { modelsNotConfigured } from "../core/settings.ts";
 import { applyOrganizationAction, placementOf } from "../core/source-organization.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
 import { runningWorkBlocker, stampSessionModel } from "./chats.ts";
 import { handoffWriterEngine, isHandoffWriterRunning, settleInterruptedHandoffs, startHandoffWriter, stopHandoffWriter } from "./handoffs.ts";
 import { createNote } from "./notes.ts";
-import { stores } from "./stores.ts";
+import { effectiveSettings, stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 
 export { CourseUnreadableError } from "../store/courses.ts";
@@ -449,6 +449,50 @@ export function retryHandoffWriter(courseId: string, unitId: string): CourseReco
 	if (!course) return refusal(404, "Unknown course");
 	startHandoffWriter(course, unitId, engine);
 	return course;
+}
+
+// ─── "Practice this unit" (item 8) ──────────────────────────────────────────
+
+/** A unit the practice draft can attach: one that has started. */
+function practicableUnit(courseId: string, unitId: string): { course: CourseRecord; unit: CourseUnit; number: number } | CourseRefusal {
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	const index = course.units.findIndex((candidate) => candidate.id === unitId);
+	const unit = course.units[index];
+	if (!unit) return refusal(404, "Unknown unit");
+	if (unit.status === "not-started" || !unit.chatId) return refusal(409, "This unit hasn't started yet.");
+	return { course, unit, number: index + 1 };
+}
+
+/** What the practice draft shows of an attached unit; null when the
+ *  course or unit can't be attached (the draft then opens plain). */
+export function unitPracticeAttachment(courseId: string, unitId: string): { courseId: string; unitId: string; number: number; title: string } | null {
+	const found = practicableUnit(courseId, unitId);
+	return isRefusal(found) ? null : { courseId: found.course.id, unitId: found.unit.id, number: found.number, title: found.unit.title };
+}
+
+/**
+ * Start a "Practice this unit" session's context (decision 4): its course
+ * back-pointer and its message 0, the unit's practice context. The unit's
+ * graph propositions are those whose provenance names its session, read
+ * as the graph is now (never waiting for extraction) and left out with the
+ * graph off.
+ */
+export function unitPracticeStart(courseId: string, unitId: string): { ok: true; link: ChatCourseLink; message: LhMarkerMessage } | CourseRefusal {
+	const found = practicableUnit(courseId, unitId);
+	if (isRefusal(found)) return found;
+	const chatId = found.unit.chatId!;
+	const propositions: GraphContextPick[] = effectiveSettings().graph.enabled
+		? stores.graphStore.readNodes()
+			.filter((node) => node.provenance.some((point) => point.chatId === chatId))
+			.map((node) => ({ id: node.id, name: node.name, statement: node.statement }))
+		: [];
+	const context = unitPracticeContext(found.course, found.unit.id, propositions)!;
+	return {
+		ok: true,
+		link: { role: "practice", courseId: found.course.id, unitId: found.unit.id },
+		message: newUnitPracticeMessage(context.text, context.unit, propositions),
+	};
 }
 
 // ─── session pages ──────────────────────────────────────────────────────────

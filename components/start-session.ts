@@ -3,8 +3,9 @@ import { clearOpeningPrompt, OPENING_PROMPT_FAILURE, stashOpeningPrompt } from "
 interface SessionCreation {
 	title: string;
 	kind?: "practice";
-	/** Fork plan 04: a course setup session. */
-	course?: { role: "setup" };
+	/** Fork plan 04: a course setup session, or (item 8, with kind
+	 *  "practice") a "Practice this unit" session linked to its unit. */
+	course?: { role: "setup" } | { role: "practice"; courseId: string; unitId: string };
 	graphContext?: { propositions: readonly { id: string; name: string; statement: string }[] };
 }
 

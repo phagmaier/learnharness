@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode, Ref } from "react";
-import { DumbbellIcon } from "lucide-react";
+import { DumbbellIcon, GraduationCapIcon } from "lucide-react";
 
 /** Home and the draft share one wrapping action row. Picker controls lead;
  * setup is centered only when it is the sole action. */
@@ -56,6 +56,37 @@ export function NodePickerControl({ count, onOpen, onClear, disabled, triggerRef
 					Clear
 				</button>
 			)}
+		</div>
+	);
+}
+
+/** "Practice this unit" (fork plan 04 item 8): the unit attached to the
+ * practice draft, in the node picker's place. Clear detaches it, leaving a
+ * plain practice draft. */
+export function UnitAttachmentChip({ number, title, onClear, disabled }: {
+	number: number;
+	title: string;
+	onClear?: () => void;
+	disabled?: boolean;
+}) {
+	return (
+		<div className="flex min-w-0 items-center gap-1.5">
+			<span
+				data-testid="practice-unit-chip"
+				className="flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground"
+			>
+				<GraduationCapIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+				<span className="min-w-0 truncate">Unit {number}: {title}</span>
+			</span>
+			<button
+				type="button"
+				data-testid="practice-unit-clear"
+				disabled={disabled}
+				onClick={onClear}
+				className="shrink-0 cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+			>
+				Clear
+			</button>
 		</div>
 	);
 }

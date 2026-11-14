@@ -14,14 +14,18 @@ import { SetupDialog } from "@/components/setup-dialog";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
-import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { ComposerActions, NodePickerControl, UnitAttachmentChip } from "@/components/composer-actions";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { modePlaceholder, SessionStarter } from "@/components/start-session";
-import type { ChatSettings, GraphSnapshot } from "@/src/core";
+import { unitPracticePrompt, type ChatSettings, type GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
  *  bar lifts — resolved nodes as the learner SAW them at pick time. */
 export type DraftPick = { id: string; name: string; statement: string };
+
+/** "Practice this unit" (fork plan 04 item 8): the unit attached to a
+ *  practice draft (resolved server-side from ?course=&unit=). */
+export type DraftUnit = { courseId: string; unitId: string; number: number; title: string };
 
 /**
  * The sessionless draft view at /chat/new (owner, 2026-09-13): "+ New
@@ -50,16 +54,21 @@ export async function startDraftSession(
 	picks?: readonly DraftPick[],
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
+	unit?: Pick<DraftUnit, "courseId" | "unitId"> | null,
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t) return null;
 	// THE PICKS RIDE THE CREATE (owner round 10): a practice draft seeded
 	// from the pick bar creates its session WITH the graph context — the
 	// same contract as the home screen's practice send (the marker with
-	// [id] name: statement lines, target validation's truth set).
+	// [id] name: statement lines, target validation's truth set). An
+	// attached unit (fork plan 04 item 8) takes the picks' place: the
+	// server writes the unit's practice context instead.
 	return starter.start(
 		mode === "practice"
-			? { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
+			? unit
+				? { title: t, kind: "practice", course: { role: "practice", courseId: unit.courseId, unitId: unit.unitId } }
+				: { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
 			: mode === "course" ? { title: t, course: { role: "setup" } } : { title: t },
 		fetchLike,
 		settingsIdentity,
@@ -82,6 +91,8 @@ export function DraftShell({
 	picks = [],
 	onOpenPicker,
 	onClearPicks,
+	unit = null,
+	onClearUnit,
 	overlay,
 }: {
 	busy: boolean;
@@ -105,6 +116,10 @@ export function DraftShell({
 	picks?: DraftPick[];
 	onOpenPicker?: () => void;
 	onClearPicks?: () => void;
+	/** "Practice this unit" (fork plan 04 item 8): the attached unit's
+	 *  chip, in the node picker's place; Clear detaches it. */
+	unit?: Pick<DraftUnit, "number" | "title"> | null;
+	onClearUnit?: () => void;
 	/** THE PICKER SLOT (owner round 10b): the chain-table overlay hosts
 	 *  INSIDE the content column's relative container — the same law as
 	 *  the graph view (the overlay fills its column, never the sidebar).
@@ -193,7 +208,9 @@ export function DraftShell({
 						<div className="bg-background pb-4">
 							<div className={DOCK}>
 								<ComposerActions
-									picker={(picks.length > 0 || mode === "practice") && (
+									picker={mode === "practice" && unit ? (
+										<UnitAttachmentChip number={unit.number} title={unit.title} onClear={onClearUnit} disabled={busy} />
+									) : (picks.length > 0 || mode === "practice") && (
 										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
 									)}
 									setup={setupCta}
@@ -241,14 +258,27 @@ export function DraftShell({
 	);
 }
 
-export function NewSession({ initialConfigured, mode = "teach" }: { initialConfigured: boolean; mode?: "teach" | "practice" | "course" }) {
+export function NewSession({ initialConfigured, mode = "teach", initialUnit = null }: {
+	initialConfigured: boolean;
+	mode?: "teach" | "practice" | "course";
+	/** "Practice this unit" (fork plan 04 item 8): the unit the practice
+	 *  draft opens with, its composer prefilled. */
+	initialUnit?: DraftUnit | null;
+}) {
 	const router = useRouter();
-	const [text, setText] = useState("");
+	const openingText = mode === "practice" && initialUnit ? unitPracticePrompt(initialUnit.number, initialUnit.title) : "";
+	const [text, setText] = useState(openingText);
 	/* The draft MIRROR ("nothing gets lost" round, 2026-10-01): the shell's
 	 * finish-first send calls THIS send after the dictation flush — which
 	 * landed via setState and may not have re-rendered yet. The send reads
 	 * the mirror; every write keeps it current. */
-	const textRef = useRef("");
+	const textRef = useRef(openingText);
+	const [unit, setUnit] = useState<DraftUnit | null>(mode === "practice" ? initialUnit : null);
+	const unitRef = useRef<DraftUnit | null>(unit);
+	const applyUnit = (next: DraftUnit | null) => {
+		unitRef.current = next;
+		setUnit(next);
+	};
 	const applyText = (v: string) => {
 		textRef.current = v;
 		setText(v);
@@ -318,7 +348,7 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 		setBusy(true);
 		setStartError(false);
 		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "practice" ? picksRef.current : undefined,
-			starterRef.current, JSON.stringify(catalog?.slots.strong))
+			starterRef.current, JSON.stringify(catalog?.slots.strong), mode === "practice" ? unitRef.current : null)
 			.then((target) => {
 				if (target) router.push(target);
 				else { startingRef.current = false; setBusy(false); }
@@ -342,6 +372,8 @@ export function NewSession({ initialConfigured, mode = "teach" }: { initialConfi
 				picks={picks}
 				onOpenPicker={openPicker}
 				onClearPicks={() => applyPicks([])}
+				unit={unit}
+				onClearUnit={() => applyUnit(null)}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

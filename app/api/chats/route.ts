@@ -1,6 +1,6 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, stampSessionModel, stores, titleFromPrompt } from "@/src/server";
+import { compactionInFlight, createChat, isCourseRefusal, isTurnRunning, listChats, stampSessionModel, stores, titleFromPrompt, unitPracticeStart } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -27,8 +27,15 @@ export async function POST(req: Request) {
 	const kind = body.kind === "practice" ? ("practice" as const) : undefined;
 	// Fork plan 04: a course setup session is a teach-kind chat carrying
 	// its back-pointer; the course id joins once the course exists.
-	const setup = kind === undefined && (body.course as { role?: unknown } | undefined)?.role === "setup";
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, setup ? { role: "setup" } : undefined);
+	const courseBody = (body.course && typeof body.course === "object" ? body.course : {}) as { role?: unknown; courseId?: unknown; unitId?: unknown };
+	const setup = kind === undefined && courseBody.role === "setup";
+	// Fork plan 04 item 8: "Practice this unit" — a practice session linked
+	// to its unit, opening with the unit's practice context instead of picks.
+	const unitPractice = kind === "practice" && courseBody.role === "practice"
+		? unitPracticeStart(typeof courseBody.courseId === "string" ? courseBody.courseId : "", typeof courseBody.unitId === "string" ? courseBody.unitId : "")
+		: null;
+	if (unitPractice && isCourseRefusal(unitPractice)) return Response.json({ error: unitPractice.error }, { status: unitPractice.status });
+	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, setup ? { role: "setup" } : unitPractice?.link);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches
@@ -41,6 +48,10 @@ export async function POST(req: Request) {
 	// message), carrying the picks plus the reasoning chains among them.
 	// The picks carry their own name/statement (what the learner saw at
 	// pick time); the chains derive from the CURRENT graph snapshot.
+	if (unitPractice) {
+		stores.chatStore.saveMessages(chat.id, [unitPractice.message]);
+		return Response.json({ id: chat.id, title: chat.title });
+	}
 	const rawPicks = (body.graphContext as { propositions?: unknown } | undefined)?.propositions;
 	const picks: GraphContextPick[] = Array.isArray(rawPicks)
 		? rawPicks

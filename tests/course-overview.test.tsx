@@ -203,7 +203,7 @@ it("summarizes a learner's edit one line per change", () => {
 describe("the overview", () => {
 	const course = makeCourse();
 	const numberOf = new Map(course.units.map((u, i) => [u.id, i + 1]));
-	const card = (index: number) => renderToStaticMarkup(<UnitCard unit={course.units[index]!} number={index + 1} numberOf={numberOf} onStart={() => {}} />);
+	const card = (index: number) => renderToStaticMarkup(<UnitCard unit={course.units[index]!} courseId={course.id} number={index + 1} numberOf={numberOf} onStart={() => {}} />);
 
 	it("offers Start unit before a unit starts, and Open once it has", () => {
 		const notStarted = card(2);
@@ -214,17 +214,21 @@ describe("the overview", () => {
 		assert.ok(notStarted.includes('id="unit-eigen"'), "the sidebar's anchor");
 		const inProgress = card(1);
 		assert.ok(inProgress.includes(">In progress<") && inProgress.includes('href="/chat/chat_m"') && !inProgress.includes("unit-start"));
+		assert.ok(!inProgress.includes("unit-practice"), "only a completed unit is practised");
 		const completed = card(0);
 		assert.ok(completed.includes(">Completed<") && completed.includes('href="/chat/chat_v"') && !completed.includes("Builds on"));
+		// Item 8: Open, then "Practice this unit" (the practice draft with the unit attached).
+		const practice = parseHTML(completed).document.querySelector('[data-testid="unit-practice"]');
+		assert.equal(practice?.textContent, "Practice this unit");
+		assert.equal(practice?.getAttribute("href"), `/chat/new?mode=practice&course=${course.id}&unit=${course.units[0]!.id}`);
+		assert.ok(completed.indexOf("unit-open") < completed.indexOf("unit-practice"));
 	});
 
 	it("has Overview and Notes tabs", () => {
 		const html = renderToStaticMarkup(<CourseTabs courseId="course_1" active="overview" />);
 		assert.ok(html.includes('href="/course/course_1"'));
-		assert.match(html, /<button[^>]*disabled=""[^>]*data-testid="course-tab-notes"/);
-		assert.ok(!html.includes('href="/course/course_1/notes"'), "no dead link before the notes page exists");
 		assert.match(html, /aria-current="page"[^>]*>Overview</);
-		const ready = renderToStaticMarkup(<CourseTabs courseId="course_1" active="notes" notesAvailable />);
+		const ready = renderToStaticMarkup(<CourseTabs courseId="course_1" active="notes" />);
 		const notes = parseHTML(ready).document.querySelector('[data-testid="course-tab-notes"]');
 		assert.equal(notes?.getAttribute("href"), "/course/course_1/notes");
 		assert.equal(notes?.getAttribute("aria-current"), "page");

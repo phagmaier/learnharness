@@ -1,6 +1,6 @@
 # Plan 04: courses and units (roadmap step 4, course phase 1)
 
-**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–6 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation, and the human reviewed and finished item 6 (see Outcome). Item 7 is implemented and not yet committed. Items 8–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–7 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation, and the human reviewed and finished items 6 and 7 (see Outcome). Item 8 is implemented and not yet committed. Items 9–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -834,3 +834,59 @@ The human authorized fixing the review finding: providers that reuse a raw tool-
 - **Build:** the production build passes with the inherited `pdf-read.ts` tracing warning. Verification used an isolated copy of the working source, installed dependencies and generated plugin SDKs, excluding learning profiles and credentials. The first build in the live checkout compiled and typechecked but failed while the inherited broad tracer copied a transient `data/chats/*.tmp-*` file. Its incomplete generated standalone bundle was removed; no build configuration changes were made for this repair.
 - **Browser:** Playwright on the compiled production app with a scratch profile and the original two-turn fake-provider reproduction shows the determinants proposal as Outdated and the Jordan proposal as Pending, with distinct canonical ids. Accepting the latter keeps determinants, removes Jordan, and records only `Drop 5: Jordan form` in the revision. Screenshots are `/tmp/lh-proposal-repair-browser-f61hl64c/replacement-pending.png` and `replacement-accepted.png`. Only the unrelated favicon 404 and unconfigured dictation-token 503 appeared in the console.
 - **Final review:** the callback reuses the existing uniquifier and runs before tool execution; each turn owns its mapping, which is refreshed for each execution. The tests protect separate-message and separate-turn collisions, result-to-record identity, actual retries, replacement and acceptance. No remaining in-scope findings. No paid provider calls; changes remain uncommitted.
+
+### Item 8 (2026-11-13)
+
+- **Built:**
+  - **The notes resolver** (`noteStoreFor` in `src/server/notes.ts`): a unit session the course records keeps its notes in `data/courses/<courseId>/notes/<chatId>/`, and every other session keeps them in `data/notes/<chatId>/`. Every notes route, the notes chip's count, the session archive and session deletion go through it. Setup sessions stay refused.
+  - **The course Notes tab** (`/course/[id]/notes`, `components/course-notes.tsx`). The phase-0 page became a shared workspace (`NotesWorkspace` in `components/notes-page.tsx`) that groups notes under unit headings in course order and adds a unit picker to "New note". Every action goes to the note's own session routes. A unit's Notes chip opens the tab with the unit selected (`?unit=`), and a unit session's own notes page redirects there. The Overview | Notes tabs are now both live.
+  - **Course routes:** `GET /api/courses/:id/notes` (each started unit with its notes) and `GET /api/courses/:id/notes/archive.zip` (`<course-slug>-notes.zip`, a `<n>-<unit-slug>/` folder per unit with notes).
+  - **"Practice this unit":** a button on completed units' cards opens `/chat/new?mode=practice&course=…&unit=…`. The draft shows the unit as a chip in the node picker's place, and the composer is prefilled with "Practice unit <n>: <title>". `POST /api/chats` with `course: { role: "practice", … }` creates the linked practice session. Its message 0 is the unit's practice context (`unitPracticeContext` in core, `unitPracticeStart` in the course service), in the plan's text. The transcript card reads "Unit context". The session stays a flat Practice row, and its concludes become the unit's practice evidence through item 5's sync.
+- **Agent-selected:** see the fork README's item 8 entry: membership-based resolution, the one-time move of earlier unit notes, deletion of both folders, the tab's selection rules, the archive's refusal, the attachable units, the marker reusing `graph-context`, the topics and shaky items, propositions with the graph off, and the wording the plan didn't specify. Also:
+  - The note toolbar wraps on narrow windows. At the desktop window's minimum width (640 px), "Delete…" overflowed in phase 0's page and therefore in the new tab.
+  - The notes chip takes an optional `href`. `CourseTabs` lost its `notesAvailable` placeholder, and `UnitCard` takes the course id.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning in `tests/source-name-ui.test.tsx`.
+  - Full suite: **5,595 passed, 0 failed, 4 skipped** (5,599 tests). One later CSS-only change (the toolbar wrap) was followed by typecheck, lint and the three notes files (76 tests), which pass.
+  - New: `tests/course-notes.test.tsx` (16), with every expected text and file layout worked by hand. It covers:
+    - the resolver for a unit session, a standalone session and a crash's duplicate;
+    - the one-time move;
+    - setup refusal and the 409 for an unreadable course;
+    - deletion of a unit's notes, with the course's other files kept;
+    - the chip and the redirect;
+    - the course listing and the archive's folders, read back with a minimal zip reader, and the archive's refusal naming the unit;
+    - the tab's grouped list, the arrival selection, the picker's default and the session it writes to, and the export target;
+    - the practice context with and without propositions, with no handoff and with an unfinished writer;
+    - graph propositions on and off, and the start refusals;
+    - the transcript card, the draft page's attachment, the draft chip and its request body;
+    - the route's linked session and its refusals, which create no session;
+    - the practice evidence.
+  - Existing tests updated: `tests/course-overview.test.tsx` (the tabs, and "Practice this unit" on the completed card) and `tests/course-completion.test.tsx` (`UnitCard`'s new prop).
+  - **Mutation checks:** resolving by the back-pointer alone, and session deletion without the course link, each fail the new tests.
+  - The production build passed with the inherited `pdf-read.ts` tracing warning.
+  - **Browser check:** the built server on a scratch profile, the local fake keyless endpoint, and Electron 44 (headless platform) driven by `puppeteer-core`, in Ivory and Default. Each theme ran setup → unit 1 (a graded check at 90%, the goal) → "Complete unit" with a note. It then verified:
+    - the note under the course and nothing in `data/notes/`;
+    - "Open next unit", then unit 2's chip opening the tab with unit 2 selected ("No notes for this unit yet.");
+    - New note defaulting to "2. Linear maps", and both notes grouped under their headings;
+    - selecting unit 1's note, then Export downloading unit 1's conversation;
+    - the archive (`linear-algebra-notes.zip`, `1-vectors-and-span/…`, `2-linear-maps/…`);
+    - no horizontal overflow at 640 px;
+    - with the graph on and one proposition from unit 1, "Practice this unit" on the completed card only, the draft's chip and prefill, and the practice agent's opening context in the plan's text with that proposition;
+    - the problem targeting it accepted, the learner's thinking concluded, and the practice evidence recorded for unit 1;
+    - the session outside the course group.
+    - Only the dictation token's expected 503s appeared in the console. A first run failed on the check's own expectation: only "Span" was reached by a question, so the other plan nodes are correctly left out of "Topics the unit taught".
+  - **Screenshots:** `31-notes-tab-unit2-empty` through `39-practice-concluded` (light and dark) under the session scratchpad's `bc/shots/`.
+  - **Assumption checked:** Python's `zipfile` passes the archive's CRC check and creates the unit folders from `/` in entry names. `unzip`, `bsdtar` and `7z` aren't installed on this machine.
+- **Known limits:**
+  - At phone widths (390 px, browser only) the notes pages keep phase 0's side-by-side layout and overflow by about 60 px. This is inherited, and the desktop window can't get that narrow.
+  - "Download notes" in a course deletion dialog arrives with item 9.
+- **Human checks owed:** none required by the plan for this item. The tab's look and the wording listed in the README entry are open to the human's review.
+
+### Item 8 review repair (2026-11-13)
+
+The human authorized fixing failed legacy-note migration: the resolver logged a failed move, then used the empty course folder. Listings and archives could omit the original notes, and creating a new note made that omission persist after the move error cleared.
+
+- **Fix:** a failed move throws `NotesUnreadableError` with the filesystem error retained as its cause. Existing route handling returns 409 for session notes, note creation and both archives; the course archive names the affected unit. No destination index or writer is created, so a later request can retry the move. The decision and refusal wording are recorded in the fork README.
+- **Regression coverage:** extended the existing migration test in `tests/course-notes.test.tsx`. An injected filesystem `EACCES` exercises the real session listing, both archive routes and new-note creation; they refuse the operation and preserve the original index and HTML. After removing the fault, the original note is readable and archived, and a later new note coexists with it. The test failed before the fix (200 instead of 409) and passes afterward. All 76 focused notes tests pass.
+- **Verification:** typecheck passes; lint passes with the inherited `tests/source-name-ui.test.tsx` warning. The full suite passes: **5,595 passed, 0 failed, 4 skipped** (5,599 tests). No build or browser rerun for this service-only repair; the regression exercises the actual route handlers and filesystem with a temporary profile and fake provider.
+- **Final review:** the refusal occurs before the empty destination can be read or written, uses the existing route error handling, preserves the original files and allows a later retry. The extended test covers the original failure and recovery without duplicating the existing migration fixture. No remaining in-scope findings; changes remain uncommitted.

@@ -22,14 +22,15 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import { HostDialog } from "@/components/host-dialog";
 import { HandoffDisclosure } from "@/components/course-handoff";
 import { CourseChangesCard, decideProposal, type ProposalDecision } from "@/components/course-changes-card";
+import { unitPracticeHref } from "@/components/session-list";
 import { cn } from "@/lib/utils";
 
 /**
  * The course overview (fork plan 04 item 3): the goal, pending course
  * changes (item 7: the teachers' proposals, with Accept and Reject), and
  * the unit list with each unit's status, prerequisites, goal, starting
- * point and actions. A completed unit adds "Reopen unit" and its handoff
- * disclosure (item 6). "Edit units" turns the list into the setup card's
+ * point and actions. A completed unit adds "Practice this unit" (item 8),
+ * "Reopen unit" and its handoff disclosure (item 6). "Edit units" turns the list into the setup card's
  * editor, where started units can't be removed. The title renames on
  * click. Open views refetch on courses-changed.
  */
@@ -43,7 +44,7 @@ export const UNIT_STATUS_LABEL: Record<CourseUnit["status"], string> = {
 const ACTION = "rounded-md border px-2.5 py-1 font-ui text-[11px] uppercase tracking-wider transition-colors hover:bg-accent disabled:opacity-50";
 
 /** The Overview | Notes tabs. */
-export function CourseTabs({ courseId, active, notesAvailable = false }: { courseId: string; active: "overview" | "notes"; notesAvailable?: boolean }) {
+export function CourseTabs({ courseId, active }: { courseId: string; active: "overview" | "notes" }) {
 	const tab = (id: "overview" | "notes", label: string, href: string) => (
 		<Link
 			href={href}
@@ -60,9 +61,7 @@ export function CourseTabs({ courseId, active, notesAvailable = false }: { cours
 	return (
 		<nav className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" aria-label="Course views">
 			{tab("overview", "Overview", `/course/${encodeURIComponent(courseId)}`)}
-			{notesAvailable ? tab("notes", "Notes", `/course/${encodeURIComponent(courseId)}/notes`) : (
-				<button type="button" disabled data-testid="course-tab-notes" title="Course notes aren't available yet." className="rounded-sm px-2.5 py-0.5 text-[11px] uppercase tracking-wider text-muted-foreground/60">Notes</button>
-			)}
+			{tab("notes", "Notes", `/course/${encodeURIComponent(courseId)}/notes`)}
 		</nav>
 	);
 }
@@ -70,6 +69,7 @@ export function CourseTabs({ courseId, active, notesAvailable = false }: { cours
 /** One unit on the overview, with the actions its status allows. */
 export function UnitCard({
 	unit,
+	courseId,
 	number,
 	numberOf,
 	starting = false,
@@ -79,6 +79,8 @@ export function UnitCard({
 	extra,
 }: {
 	unit: CourseUnit;
+	/** For "Practice this unit" (item 8). */
+	courseId: string;
 	number: number;
 	numberOf: ReadonlyMap<string, number>;
 	starting?: boolean;
@@ -119,6 +121,9 @@ export function UnitCard({
 					)}
 					{unit.status !== "not-started" && unit.chatId && (
 						<Link href={`/chat/${encodeURIComponent(unit.chatId)}`} data-testid="unit-open" className={ACTION}>Open</Link>
+					)}
+					{unit.status === "completed" && unit.chatId && (
+						<Link href={unitPracticeHref(courseId, unit.id)} data-testid="unit-practice" className={ACTION}>Practice this unit</Link>
 					)}
 					{unit.status === "completed" && onReopen && (
 						<button type="button" data-testid="unit-reopen" className={ACTION} disabled={reopening} onClick={onReopen}>
@@ -352,6 +357,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 										<UnitCard
 											key={unit.id}
 											unit={unit}
+											courseId={courseId}
 											number={index + 1}
 											numberOf={numberOf}
 											starting={starting === unit.id}

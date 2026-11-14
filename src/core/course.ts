@@ -24,7 +24,7 @@ import type {
 	UnitHandoff,
 } from "./contracts/course.ts";
 import { derivePlanStatusesLh, type PlanTree } from "./contracts/plan.ts";
-import type { LhMessage } from "./native-messages.ts";
+import type { GraphContextPick, LhMessage, UnitPracticeDetails } from "./native-messages.ts";
 
 // ─── names and numbers ──────────────────────────────────────────────────────
 
@@ -807,4 +807,65 @@ export function unitSessionView(course: CourseRecord, unitId: string, chatId: st
 		...(unit.goalReachedAt ? { goalReachedAt: unit.goalReachedAt } : {}),
 		proposals: course.proposals.filter((proposal) => proposal.chatId === chatId).map((proposal) => proposalView(course, proposal)),
 	};
+}
+
+// ─── "Practice this unit" (item 8) ──────────────────────────────────────────
+
+/** The shaky items a unit's handoff hands to its practice session: the
+ *  computed shaky topics with their reasons, then (once the writer has
+ *  finished) its shaky judgments and extra shaky items, labeled as
+ *  model-written. */
+export function handoffShakyItems(handoff: UnitHandoff | undefined): string[] {
+	if (!handoff) return [];
+	const items = handoff.topics.filter((entry) => entry.status === "shaky").map((entry) => `${entry.title}: ${entry.reason}`);
+	const observations = handoff.writer.status === "ready" ? handoff.observations : undefined;
+	if (observations) {
+		const byNode = new Map(handoff.topics.map((entry) => [entry.nodeId, entry]));
+		for (const judgment of observations.judged) {
+			if (judgment.status === "shaky") items.push(`${byNode.get(judgment.nodeId)?.title ?? judgment.nodeId}: ${judgment.reason} (model-written)`);
+		}
+		for (const line of observations.alsoShaky) items.push(`${line} (model-written)`);
+	}
+	return items;
+}
+
+/**
+ * The context a "Practice this unit" session opens with (decision 4): the
+ * unit's title and goal, the plan topics it taught (its handoff's topics,
+ * less those never reached), the handoff's shaky items, and the unit's
+ * graph propositions when it has been extracted, introduced by id so the
+ * problem tool's target field can use them. Null for an unknown unit.
+ */
+export function unitPracticeContext(
+	course: Pick<CourseRecord, "id" | "title" | "units">,
+	unitId: string,
+	propositions: readonly GraphContextPick[],
+): { text: string; unit: UnitPracticeDetails } | null {
+	const index = course.units.findIndex((unit) => unit.id === unitId);
+	const unit = course.units[index];
+	if (!unit) return null;
+	const topics = (unit.handoff?.topics ?? []).filter((entry) => entry.status !== "not-reached").map((entry) => entry.title);
+	const shaky = handoffShakyItems(unit.handoff);
+	const lines = [
+		"[Session context] — practice for a unit of the learner's course, chosen by the learner:",
+		`Course: ${course.title}. Unit ${index + 1}: ${unit.title}.`,
+		`Unit goal: ${unit.goal}`,
+		`Topics the unit taught: ${topics.length > 0 ? topics.join("; ") : "none recorded"}`,
+		...(shaky.length > 0 ? ["Shaky at the end of the unit:", ...shaky.map((item) => `- ${item}`)] : ["Shaky at the end of the unit: none recorded"]),
+	];
+	if (propositions.length > 0) {
+		lines.push(
+			"Propositions (id — name: statement; the problem tool's target field uses these ids):",
+			...propositions.map((p) => `- [${p.id}] ${p.name}: ${p.statement}`),
+		);
+	}
+	return {
+		text: lines.join("\n"),
+		unit: { courseId: course.id, unitId: unit.id, number: index + 1, courseTitle: course.title, unitTitle: unit.title, goal: unit.goal, topics, shaky },
+	};
+}
+
+/** The practice draft's opening text for a unit (Proposed, plan 04 item 8). */
+export function unitPracticePrompt(number: number, title: string): string {
+	return `Practice unit ${number}: ${title}`;
 }

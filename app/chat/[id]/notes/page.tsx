@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { NotesPage } from "@/components/notes-page";
-import { getChat, isNotesUnreadable, listNotesWithCost } from "@/src/server";
+import { courseNotesHref } from "@/components/session-list";
+import { getChat, isNotesUnreadable, listNotesWithCost, sessionCourseView } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ export default async function SessionNotesPage({ params }: { params: Promise<{ i
 	if (!chat) notFound();
 	// Practice and course setup sessions have no notes (fork plans 03, 04).
 	if (chat.kind === "practice" || chat.course?.role === "setup") redirect(`/chat/${encodeURIComponent(id)}`);
+	// A course unit's notes are in its course's Notes tab (fork plan 04 item 8).
+	const course = sessionCourseView(chat);
+	if (course?.role === "unit") redirect(courseNotesHref(course.courseId, course.unitId));
 	let notes: ReturnType<typeof listNotesWithCost> = [];
 	let error: string | null = null;
 	try {

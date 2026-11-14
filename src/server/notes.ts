@@ -1,6 +1,6 @@
 /**
- * Study notes for standalone Teach sessions (fork plan 03 item 3): the
- * lifecycle around the note writer. A new note is listed at once as
+ * Study notes for Teach sessions (fork plan 03 item 3): the lifecycle
+ * around the note writer. A new note is listed at once as
  * "writing" and written in the background; several notes can be written at
  * once, but one note is never rewritten while it is being written. Stop
  * aborts the writer; a stopped new note fails as stopped, and a stopped
@@ -10,18 +10,27 @@
  * Note requests use the noteWriter role (Strong slot), run with purpose
  * "user" because the learner asked for them (no background consent needed
  * on subscriptions), and share the worker-request pool.
+ *
+ * Where a session's notes live (fork plan 04 item 8): a unit session its
+ * course records keeps them under the course
+ * (data/courses/<courseId>/notes/<chatId>/); every other session, a
+ * crash's duplicate unit session included, in data/notes/<chatId>/.
  */
-import type { ChatRecord, JobUsage, NoteEntry } from "../core/contracts.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { ChatCourseLink, ChatRecord, CourseRecord, JobUsage, NoteEntry } from "../core/contracts.ts";
+import { unitSlug } from "../core/course.ts";
 import { modelsNotConfigured, type ModelsNotConfigured } from "../core/settings.ts";
 import { resolveRoleSpec } from "../core/settings-resolution.ts";
 import { emit } from "../core/events.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { writeNote } from "../agent/subagents/note-writer.ts";
-import { newNoteId, NotesUnreadableError, sessionNoteStore, type NoteStore } from "../store/notes.ts";
+import { newNoteId, noteStoreAt, NotesUnreadableError, sessionNoteStore, type NoteStore } from "../store/notes.ts";
+import { courseNotesDir, courseStore, CourseUnreadableError } from "../store/courses.ts";
 import { documentSlug } from "./document-export.ts";
 import { jobCost } from "./pricing.ts";
 import { stores } from "./stores.ts";
-import { zipFiles } from "./zip.ts";
+import { zipFiles, type ZipEntry } from "./zip.ts";
 
 export { NotesUnreadableError } from "../store/notes.ts";
 
@@ -58,6 +67,53 @@ function changed(chatId: string): void {
 	emit("notes-changed", { chatId });
 }
 
+// ─── where a session's notes live ───────────────────────────────────────────
+
+/** The course whose record names this session as a unit's session, or
+ *  null. Throws NotesUnreadableError when that course can't be read. */
+function memberCourseId(record: Pick<ChatRecord, "id" | "course">): string | null {
+	const link = record.course;
+	if (link?.role !== "unit") return null;
+	let course: CourseRecord | null;
+	try {
+		course = courseStore.get(link.courseId);
+	} catch (error) {
+		if (error instanceof CourseUnreadableError) throw new NotesUnreadableError(`This session's course can't be read: ${error.message}`);
+		if (error instanceof Error && error.message.startsWith("Invalid course id")) return null;
+		throw error;
+	}
+	return course?.units.some((unit) => unit.chatId === record.id) ? course.id : null;
+}
+
+/** A unit session's notes, inside its course. Notes written there before
+ *  unit notes moved under the course (plan 04 items 4–7) move along once,
+ *  while none of the session's writers runs. A failed move refuses access
+ *  instead of letting an empty destination strand the original notes. */
+function unitNoteStore(courseId: string, chatId: string): NoteStore {
+	const dir = courseNotesDir(courseId, chatId);
+	const standalone = sessionNoteStore(chatId).dir;
+	if (!fs.existsSync(dir) && fs.existsSync(standalone) && ![...running().values()].some((entry) => entry.chatId === chatId)) {
+		try {
+			fs.mkdirSync(path.dirname(dir), { recursive: true });
+			fs.renameSync(standalone, dir);
+		} catch (error) {
+			console.warn(`[notes] could not move ${chatId}'s notes into its course:`, error);
+			throw new NotesUnreadableError("This session's notes couldn't be moved into its course. Try again.", { cause: error });
+		}
+	}
+	return noteStoreAt(dir);
+}
+
+/** The notes of one session, wherever they live. */
+export function noteStoreFor(record: Pick<ChatRecord, "id" | "course">): NoteStore {
+	const courseId = memberCourseId(record);
+	return courseId ? unitNoteStore(courseId, record.id) : sessionNoteStore(record.id);
+}
+
+function storeOf(chatId: string): NoteStore {
+	return noteStoreFor(stores.chatStore.getChat(chatId) ?? { id: chatId });
+}
+
 /** The note writer's engine: role override → Strong slot, purpose "user". */
 export function noteWriterEngine(): PiEngine | undefined {
 	const settings = stores.settingsStore.readSettings();
@@ -85,12 +141,14 @@ function recover(chatId: string, store: NoteStore): NoteEntry[] {
 }
 
 export function listNotes(chatId: string): NoteEntry[] {
-	return recover(chatId, sessionNoteStore(chatId));
+	return recover(chatId, storeOf(chatId));
 }
+
+const withCost = (notes: NoteEntry[]) => notes.map((note) => ({ ...note, costUsd: jobCost(note) }));
 
 /** The notes page's list: each note with its latest generation's cost. */
 export function listNotesWithCost(chatId: string): Array<NoteEntry & { costUsd: number | null }> {
-	return listNotes(chatId).map((note) => ({ ...note, costUsd: jobCost(note) }));
+	return withCost(listNotes(chatId));
 }
 
 export function getNote(chatId: string, noteId: string): NoteEntry | undefined {
@@ -98,7 +156,7 @@ export function getNote(chatId: string, noteId: string): NoteEntry | undefined {
 }
 
 export function readNoteHtml(chatId: string, noteId: string): string | null {
-	return sessionNoteStore(chatId).readHtml(noteId);
+	return storeOf(chatId).readHtml(noteId);
 }
 
 export type NoteRefusal = { ok: false; status: number; error: string; code?: ModelsNotConfigured["code"]; missing?: ModelsNotConfigured["missing"] };
@@ -112,8 +170,7 @@ function teachSession(chatId: string): ChatRecord | NoteRefusal {
 	return record;
 }
 
-function start(record: ChatRecord, note: NoteEntry, mode: RunningNote["mode"], engine: PiEngine, request: { instruction: string; interactive: boolean }): void {
-	const store = sessionNoteStore(record.id);
+function start(record: ChatRecord, store: NoteStore, note: NoteEntry, mode: RunningNote["mode"], engine: PiEngine, request: { instruction: string; interactive: boolean }): void {
 	const entry: RunningNote = {
 		chatId: record.id, noteId: note.id, sessionTitle: record.title, mode,
 		controller: new AbortController(), startedAt: noteServiceSeams.now().toISOString(),
@@ -196,8 +253,9 @@ export function createNote(chatId: string, input: { instruction?: unknown; inter
 		id: newNoteId(), title: "", instruction: request.instruction, interactive: request.interactive,
 		status: "writing", createdAt: now, updatedAt: now,
 	};
-	sessionNoteStore(chatId).add(note);
-	start(record, note, "write", engine, request);
+	const store = noteStoreFor(record);
+	store.add(note);
+	start(record, store, note, "write", engine, request);
 	changed(chatId);
 	return { ok: true, note };
 }
@@ -207,20 +265,20 @@ export function createNote(chatId: string, input: { instruction?: unknown; inter
 export function regenerateNote(chatId: string, noteId: string, input: { instruction?: unknown; interactive?: unknown }): { ok: true; note: NoteEntry } | NoteRefusal {
 	const record = teachSession(chatId);
 	if ("ok" in record) return record;
-	const note = getNote(chatId, noteId);
+	const store = noteStoreFor(record);
+	const note = recover(chatId, store).find((entry) => entry.id === noteId);
 	if (!note) return { ok: false, status: 404, error: "Unknown note" };
 	if (running().has(key(chatId, noteId))) return { ok: false, status: 409, error: "This note is being written. Stop it or wait for it to finish." };
 	const engine = noteWriterEngine();
 	if (!engine) return { ok: false, status: 503, ...modelsNotConfigured(["strong"]) };
 	const request = readRequest(input);
 	const now = noteServiceSeams.now().toISOString();
-	const store = sessionNoteStore(chatId);
 	const retry = note.status !== "ready";
 	const updated = store.update(noteId, ({ error: _error, stopped: _stopped, regenerating: _rewrite, ...rest }) => retry
 		? { ...rest, instruction: request.instruction, interactive: request.interactive, status: "writing", updatedAt: now }
 		: { ...rest, regenerating: { instruction: request.instruction, interactive: request.interactive, startedAt: now } });
 	if (!updated) return { ok: false, status: 404, error: "Unknown note" };
-	start(record, updated, retry ? "write" : "rewrite", engine, request);
+	start(record, store, updated, retry ? "write" : "rewrite", engine, request);
 	changed(chatId);
 	return { ok: true, note: updated };
 }
@@ -234,29 +292,33 @@ export function stopNote(chatId: string, noteId: string): boolean {
 
 export function deleteNote(chatId: string, noteId: string): boolean {
 	stopNote(chatId, noteId);
-	const removed = sessionNoteStore(chatId).remove(noteId);
+	const removed = storeOf(chatId).remove(noteId);
 	if (removed) changed(chatId);
 	return removed;
 }
 
 /** Delete every note of a session (session deletion): stop its writers,
- *  then remove the folder. A stopped writer finds no index and writes
- *  nothing back. */
-export function deleteSessionNotes(chatId: string): void {
+ *  then remove its notes folder. `link` is the deleted record's course
+ *  back-pointer: a unit session's notes may live under its course, so that
+ *  folder goes too (it only ever holds this session's notes). A stopped
+ *  writer finds no index and writes nothing back. */
+export function deleteSessionNotes(chatId: string, link?: ChatCourseLink): void {
 	for (const entry of running().values()) {
 		if (entry.chatId === chatId) entry.controller.abort();
 	}
 	sessionNoteStore(chatId).removeAll();
+	if (link?.role === "unit") {
+		try { noteStoreAt(courseNotesDir(link.courseId, chatId)).removeAll(); }
+		catch (error) { console.warn(`[notes] could not remove ${chatId}'s notes from course ${link.courseId}:`, error); }
+	}
 	changed(chatId);
 }
 
-/** Every note with a version on disk, as one zip of HTML files. */
-export function notesArchive(chatId: string): { filename: string; zip: Buffer; count: number } | NoteRefusal {
-	const record = stores.chatStore.getChat(chatId);
-	if (!record) return { ok: false, status: 404, error: "Unknown chat" };
-	const store = sessionNoteStore(chatId);
+/** The archive entries of one session's notes with a version on disk,
+ *  named after the notes (in `folder`, when given). */
+function archiveEntries(chatId: string, store: NoteStore, folder = ""): ZipEntry[] {
 	const used = new Set<string>();
-	const entries = listNotes(chatId).flatMap((note) => {
+	return recover(chatId, store).flatMap((note) => {
 		if (note.status !== "ready") return [];
 		const html = store.readHtml(note.id);
 		if (html === null) return [];
@@ -264,9 +326,66 @@ export function notesArchive(chatId: string): { filename: string; zip: Buffer; c
 		let name = `${base}.html`;
 		for (let n = 2; used.has(name); n++) name = `${base}-${n}.html`;
 		used.add(name);
-		return [{ name, data: Buffer.from(html, "utf8"), date: new Date(note.updatedAt) }];
+		return [{ name: `${folder}${name}`, data: Buffer.from(html, "utf8"), date: new Date(note.updatedAt) }];
 	});
+}
+
+/** Every note with a version on disk, as one zip of HTML files. */
+export function notesArchive(chatId: string): { filename: string; zip: Buffer; count: number } | NoteRefusal {
+	const record = stores.chatStore.getChat(chatId);
+	if (!record) return { ok: false, status: 404, error: "Unknown chat" };
+	const entries = archiveEntries(chatId, noteStoreFor(record));
 	return { filename: `${documentSlug(record.title)}-notes.zip`, zip: zipFiles(entries), count: entries.length };
+}
+
+// ─── a course's notes (plan 04 item 8) ──────────────────────────────────────
+
+/** One started unit's notes, for the course's Notes tab. */
+export interface CourseNotesUnit {
+	unitId: string;
+	/** The unit's position in the course, from 1. */
+	number: number;
+	title: string;
+	chatId: string;
+	notes: Array<NoteEntry & { costUsd: number | null }>;
+	/** This unit's notes index can't be read. */
+	error?: string;
+}
+
+/** The units that have a session, in course order. */
+function sessionUnits(course: CourseRecord): Array<{ unitId: string; number: number; title: string; chatId: string }> {
+	return course.units.flatMap((unit, index) => unit.status !== "not-started" && unit.chatId
+		? [{ unitId: unit.id, number: index + 1, title: unit.title, chatId: unit.chatId }]
+		: []);
+}
+
+/** Every started unit's notes, in course order. A unit whose notes index
+ *  can't be read carries the reason and no notes. */
+export function courseNotes(course: CourseRecord): CourseNotesUnit[] {
+	return sessionUnits(course).map((unit) => {
+		try {
+			return { ...unit, notes: withCost(recover(unit.chatId, unitNoteStore(course.id, unit.chatId))) };
+		} catch (error) {
+			if (error instanceof NotesUnreadableError) return { ...unit, notes: [], error: error.message };
+			throw error;
+		}
+	});
+}
+
+/** Every unit's notes with a version on disk, as one zip with a folder
+ *  per unit ("<n>-<unit-slug>/"). Throws NotesUnreadableError, naming the
+ *  unit, when one unit's notes can't be read: a partial archive would
+ *  silently leave notes out. */
+export function courseNotesArchive(course: CourseRecord): { filename: string; zip: Buffer; count: number } {
+	const entries = sessionUnits(course).flatMap((unit) => {
+		try {
+			return archiveEntries(unit.chatId, unitNoteStore(course.id, unit.chatId), `${unit.number}-${unitSlug(unit.title)}/`);
+		} catch (error) {
+			if (error instanceof NotesUnreadableError) throw new NotesUnreadableError(`Unit ${unit.number} (${unit.title}): ${error.message}`);
+			throw error;
+		}
+	});
+	return { filename: `${documentSlug(course.title)}-notes.zip`, zip: zipFiles(entries), count: entries.length };
 }
 
 /** Running note writers for the activity feed ("Note · <session title>"). */

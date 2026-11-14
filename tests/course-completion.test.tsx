@@ -700,14 +700,14 @@ describe("the overview's handoff", () => {
 
 	it("a completed unit's card offers Open and Reopen unit, with its Handoff disclosure closed by default", () => {
 		const completed: CourseUnit = { id: "linear-maps", title: "Linear maps", goal: "g", prerequisites: [], status: "completed", chatId: "chat_u", completedAt: unit.completedAt, handoff };
-		const html = renderToStaticMarkup(<UnitCard unit={completed} number={2} numberOf={new Map()} onReopen={() => {}} extra={<HandoffDisclosure unit={completed} handoff={handoff} />} />);
+		const html = renderToStaticMarkup(<UnitCard unit={completed} courseId="course_c" number={2} numberOf={new Map()} onReopen={() => {}} extra={<HandoffDisclosure unit={completed} handoff={handoff} />} />);
 		assert.match(html, /data-testid="unit-open"[^>]*>Open</);
 		assert.match(html, /data-testid="unit-reopen"[^>]*>Reopen unit</);
 		assert.match(html, /data-testid="handoff-toggle" aria-expanded="false"/);
 		assert.doesNotMatch(html, /data-testid="unit-handoff"/);
 		const opened = renderToStaticMarkup(<HandoffDisclosure unit={completed} handoff={handoff} defaultOpen />);
 		assert.match(opened, /data-testid="unit-handoff"/);
-		const inProgress = renderToStaticMarkup(<UnitCard unit={{ ...completed, status: "in-progress" }} number={2} numberOf={new Map()} onReopen={() => {}} />);
+		const inProgress = renderToStaticMarkup(<UnitCard unit={{ ...completed, status: "in-progress" }} courseId="course_c" number={2} numberOf={new Map()} onReopen={() => {}} />);
 		assert.doesNotMatch(inProgress, /Reopen unit/);
 	});
 });

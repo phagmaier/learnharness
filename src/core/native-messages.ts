@@ -418,6 +418,38 @@ export function newUnitStartMessage(details: UnitStartDetails): LhMarkerMessage 
 	};
 }
 
+/** "Practice this unit" (fork plan 04 item 8): the unit a practice
+ *  session was started from, as its context card shows it. */
+export interface UnitPracticeDetails {
+	courseId: string;
+	unitId: string;
+	/** The unit's position when the practice session started. */
+	number: number;
+	courseTitle: string;
+	unitTitle: string;
+	goal: string;
+	/** The plan topics the unit taught. */
+	topics: string[];
+	/** The handoff's shaky items, one line each. */
+	shaky: string[];
+}
+
+/** A "Practice this unit" session's context (fork plan 04 item 8): a
+ *  graph-context marker at message 0, so it reads, projects and classifies
+ *  like a map pick. `content` is the unit's practice context; `details`
+ *  adds the unit beside the propositions (no chains) for the card. */
+export function newUnitPracticeMessage(content: string, unit: UnitPracticeDetails, propositions: readonly GraphContextPick[]): LhMarkerMessage {
+	return {
+		id: newMessageId(),
+		role: "custom",
+		customType: "graph-context",
+		content,
+		display: true,
+		details: { propositions: propositions.map((p) => ({ id: p.id, name: p.name, statement: p.statement })), chains: [], unit },
+		timestamp: Date.now(),
+	};
+}
+
 /** The problem-dismissal marker (ask-style discard, owner 2026-10-04):
  *  UI-ONLY — toLlmMessages filters it. The model's face arrives later, at
  *  the user's next input, as the synthesized conclude pair
