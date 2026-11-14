@@ -107,6 +107,7 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 - **Unit agents' context:** it is appended to the system prompt each turn, built fresh from the course record. That keeps it current and out of reach of compaction.
 - **Evidence:** a `goal-reached` event is recorded beside the decided events.
 - **Setup and plugins:** the setup agent appears to plugins as `prober`, so the plugin API is unchanged.
+- **Prompts** (proposed in plan item 10): the setup doctrine, the unit doctrines, the course tools' descriptions and the handoff writer's prompt are fixed in code for phase 1. They aren't Settings → Prompts segments and have no overrides.
 
 *Human, 2026-11-13:* plan 04 is approved as written, including its **Proposed** items (prompt and tool wording, dialog wording, sidebar and overview details).
 
@@ -169,11 +170,39 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Human, 2026-11-13, item 8 review follow-up:* fix failed legacy-note migration leaving older notes inaccessible and allowing an incomplete archive. *Agent-selected implementation:* a failed move throws the existing notes-unreadable error, so session note routes and both archives return 409; the course archive names the affected unit. New-note creation is refused before the destination or a writer is created, and the next request retries the move. The refusal reads "This session's notes couldn't be moved into its course. Try again."
 
+*Agent-selected, plan 04 item 9 (course deletion):*
+- **What goes:** the setup session and the sessions the course record names for its units. A crash's duplicate unit session (one with only the back-pointer) isn't a member, so it stays as a standalone session, as it does for notes and the course context. Linked "Practice this unit" sessions stay, as planned.
+- **One step:** every gate runs first, then the sessions' extraction winds down together. After that, everything happens without an await:
+  - the gates again;
+  - the handoff writers stopped;
+  - one graph rewrite for all the sessions, with the same survival rules as deleting them one at a time;
+  - each session's jobs, record and notes (setup first, then the units);
+  - the graph folder;
+  - the course folder last.
+
+  A unit started while extraction winds down is included. An initial running-turn or running-job refusal stops nothing. Extraction wind-down aborts the members' extraction runs before waiting, so a 503 (or a later work-gate refusal) can follow cancellation.
+- **Graph folder:** removed only when nothing is left in it: no source and no subfolder. A deleted session whose traces the graph kept still counts as a source. So keeping the traces keeps the folder, and removing them removes it, unless the learner filed something else there. The folder goes before the course record, so a crash between the two leaves nothing behind.
+- **Failure part-way:** if a session's record or the course's notes/progress can't be removed, the request fails with 500 and the course record stays. The course store removes every other entry before removing `course.json`. A rerun counts missing sessions as deleted, while still applying the graph mode to every member id. A session record the store can't read (damaged, or saved by a newer build) counts as already gone and is left untouched, as it does for session deletion.
+- **API:** `DELETE /api/courses/:id?mode=…` returns `{ ok, mode, chatIds, stats, graphRevision }`. `chatIds` includes every recorded member, including sessions deleted by an earlier attempt, so an open member page can leave on success. Work-blocking refusals carry `code` and the named session's `chatId`; extraction refusals carry `code`. Other refusals, such as an unreadable course (409) or a cleanup failure (500), carry neither.
+- **Wording the plan didn't specify:**
+  - The session names in refusals, inside session deletion's sentences: "A turn is running in unit 2 (Linear maps) — try again when it finishes" and "Background jobs are still running in the setup session — try again when they finish".
+  - "An extraction in this course is still winding down — try again in a moment" and "Some of this course's sessions couldn't be deleted. Try again."
+  - The dialog's line leaves out a part whose count is zero and uses singulars ("its 1 unit session", "their 1 note"). "Download notes" shows only when there are notes, as in the session dialog. The dialog follows the plan's line and has no "This cannot be undone." sentence.
+  - "Delete course…" sits below "Rename course" in the session menu's quiet destructive look.
+
+*Human, 2026-11-14, item 9 review follow-up:* fix all three deletion findings: preserve the course record through late cleanup failures, remove graph traces belonging to missing member sessions, and cancel extraction registered during single-session deletion. Retain the approved storage formats, dependencies, and UI wording.
+
+*Agent-selected implementation:* course cleanup removes notes and progress before the record, and cleanup errors use the existing retryable 500 response. The graph purge and successful response use all recorded member ids; record cleanup continues to skip unreadable sessions. Single-session deletion checks extraction again immediately before its synchronous purge, aborting a late run and returning the existing retryable 503.
+
+*Human, 2026-11-14, further review repairs:* address final-directory cleanup losing the course record, retry skipping legacy notes after a session record is removed, unknown note counts being treated as zero, and inaccurate refusal guarantees. The approved dialog policy blocks Delete while notes load or cannot be read, shows "Reading notes…" while loading and the server's reason on failure, and offers "Try again" to reload the count. Cancel remains available. No dependency or storage-format changes; leave the work uncommitted.
+
+*Agent-selected implementation:* retain the original course record for restoration if final directory removal fails, and retry legacy-note cleanup independently of session-record availability. Unknown note counts stay distinct from zero; only a complete successful notes read enables Delete.
+
 ## Feature designs
 
 ### Courses, units, and notes
 
-**Status:** designed 2026-11-12. Phase 0 (notes and export for standalone Teach sessions) done 2026-11-13 ([plan 03](plans/03-notes-and-export.md)). Phase 1 planned and approved 2026-11-13 ([plan 04](plans/04-courses-and-units.md)); in progress.
+**Status:** designed 2026-11-12. Phase 0 (notes and export for standalone Teach sessions) done 2026-11-13 ([plan 03](plans/03-notes-and-export.md)). Phase 1 planned and approved 2026-11-13 ([plan 04](plans/04-courses-and-units.md)). All ten items were implemented by 2026-11-14, and the human checks under [Pending human checks](#pending-human-checks) remain.
 
 **Problem (human):** everything happens in one chat. For large subjects (full-stack development, AI, linear algebra), one chat is wasteful and hard to review.
 
@@ -273,7 +302,7 @@ Each item gets its own implementation plan, approved before work starts.
 1. *(Done 2026-11-12; see [plan 01](plans/01-small-fixes.md).)* **Small fixes:** trim CI; Claude CLI discovery via mise shims; desktop right-click menu; pi-ai 1.5.2 upgrade (its own change); model pickers (latest per family, Show all, unverified models).
 2. *(Done 2026-11-12; see [plan 02](plans/02-fork-identity-packaging.md), items 1–5.)* **Fork identity:** LearnHarness Fork name and data folder, one-time data copy, updater off, and a local AppImage build. These only take effect in a packaged build; dev runs are unchanged.
 3. *(Done 2026-11-13; see [plan 03](plans/03-notes-and-export.md).)* **Phase 0:** on-demand HTML notes and conversation export.
-4. *(Approved 2026-11-13, in progress; see [plan 04](plans/04-courses-and-units.md).)* **Phase 1:** courses and units.
+4. *(Approved 2026-11-13; implemented 2026-11-14, awaiting the human checks below; see [plan 04](plans/04-courses-and-units.md).)* **Phase 1:** courses and units.
 5. **Books.**
 6. **Phase 2:** mastery gates.
 7. **Phase 3:** competency and weak points.
@@ -292,6 +321,10 @@ Checks only the human can do, such as clicking native dialogs or menus. Remove a
   - Write a real note from one of your sessions on your own provider (from the session's Notes chip), then regenerate it with an instruction.
   - Open a downloaded note and an exported conversation outside the app, in a browser, and print one.
   - In `nix develop -c mise exec -- npm run desktop:dev`, click a web link inside a note. It should open in the system browser.
+- *Step 4, courses and units* (the checks in [plan 04](plans/04-courses-and-units.md#verification)):
+  - Run a real course setup on your own provider: start from "Course", answer the setup probe, edit the proposed units in the card, and create the course. Then work through unit 1's probe, plan and checks until the teacher marks the goal reached.
+  - Complete that unit and read its handoff: the overview's "Handoff" disclosure on the completed unit. Check that the computed solid and shaky lines match your answers, and that the teacher observations (written by your Strong model) are fair.
+  - Open the course's `progress.md` outside the app, at `<data folder>/courses/<courseId>/progress.md` (the repo's `data/` in dev unless `LH_DATA_DIR` is set). It should read as the course's current state.
 
 ## Open questions
 

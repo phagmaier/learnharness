@@ -1,6 +1,6 @@
 # Plan 04: courses and units (roadmap step 4, course phase 1)
 
-**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–7 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation, and the human reviewed and finished items 6 and 7 (see Outcome). Item 8 is implemented and not yet committed. Items 9–10 remain pending. Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-13, including its Proposed items. Items 1–8 are committed on `phase1-courses`; checkpoint 1 was reviewed and repaired under human delegation, and the human reviewed and finished items 6, 7 and 8 (see Outcome). Items 9 and 10 are implemented and not yet committed. The plan's human checks are pending (fork README, [Pending human checks](../README.md#pending-human-checks)). Work happens on branch `phase1-courses`, off `main`, one commit per item. Checkpoints after item 3 and after item 6 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Courses, units, and notes". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -890,3 +890,104 @@ The human authorized fixing failed legacy-note migration: the resolver logged a 
 - **Regression coverage:** extended the existing migration test in `tests/course-notes.test.tsx`. An injected filesystem `EACCES` exercises the real session listing, both archive routes and new-note creation; they refuse the operation and preserve the original index and HTML. After removing the fault, the original note is readable and archived, and a later new note coexists with it. The test failed before the fix (200 instead of 409) and passes afterward. All 76 focused notes tests pass.
 - **Verification:** typecheck passes; lint passes with the inherited `tests/source-name-ui.test.tsx` warning. The full suite passes: **5,595 passed, 0 failed, 4 skipped** (5,599 tests). No build or browser rerun for this service-only repair; the regression exercises the actual route handlers and filesystem with a temporary profile and fake provider.
 - **Final review:** the refusal occurs before the empty destination can be read or written, uses the existing route error handling, preserves the original files and allows a later retry. The extended test covers the original failure and recovery without duplicating the existing migration fixture. No remaining in-scope findings; changes remain uncommitted.
+
+### Item 9 (2026-11-14)
+
+- **Built:**
+  - **"Delete course…"** is the course header menu's last item, below "Rename course". It opens `DeleteCourseDialog` (`components/delete-course-dialog.tsx`), which follows the plan's wording:
+    - the red "Delete course?" title and the course name;
+    - "This deletes the course, its setup session, its <n> unit sessions, and their <m> notes.";
+    - the unchecked "Also remove their graph traces" checkbox;
+    - "Download notes" (the course archive), Cancel and Delete.
+
+    A refusal shows the server's line with Try again. On success the sidebar drops the course and its sessions and announces the graph revision. An open overview, Notes tab or member session goes home.
+  - **`DELETE /api/courses/:id?mode=…`** goes to `deleteCourse` in `src/server/courses.ts`:
+    - the gates over the setup session and the unit sessions, naming a blocked one;
+    - the extraction wind-down for all of them;
+    - then, without an await: the gates again, the handoff writers stopped, `purgeChatSessions`, the graph folder if it's empty, and the course folder.
+
+    Session deletion's wind-down became `windDownExtractions` in `src/server/chats.ts`, shared with course deletion and unchanged in behavior. `purgeChatSessions` there removes all the sessions' graph traces in one rewrite. It then removes each session's jobs, record and notes through the existing per-session cleanup, and throws if a record is still on disk.
+- **Agent-selected:** see the fork README's item 9 entry: which sessions go, the single step, the graph folder rule and its order, failures part-way, the response, and the wording the plan didn't specify.
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning in `tests/source-name-ui.test.tsx`.
+  - Full suite: **5,606 passed, 0 failed, 4 skipped** (5,610 tests).
+  - New: `tests/course-deletion.test.tsx` (11), through the real route, covering:
+    - every file removed (course folder, `progress.md`, unit notes, setup and unit records, a finished job), with the setup session first;
+    - another course, a standalone session's notes, and a linked practice session kept; syncing the practice session doesn't bring the course back;
+    - a 404 on a second delete;
+    - both graph modes over three sessions, including a topic another session shares;
+    - the graph folder kept with the kept traces, removed once empty, and kept when the learner filed another source in it;
+    - the 409s for a turn and for a job, naming unit 2 and the setup session, with nothing deleted;
+    - an injected `EACCES` on one session record: the 500, the course kept, and a rerun that finishes (the follow-up below returns all member ids);
+    - the handoff writer left running by a refused deletion, then stopped by a successful one without recreating the folder;
+    - the required mode;
+    - the dialog's line for four count cases, the checkbox, "Download notes" only with notes, and the menu order.
+  - `tests/course-overview.test.tsx` passes `CourseMenuItems`'s new `onDelete`.
+  - **Mutation checks:** each of these fails exactly its targeted test:
+    - removing the course record before the sessions;
+    - judging the folder empty from session records alone (ignoring kept traces);
+    - not stopping the handoff writers.
+  - The production build passed with the inherited `pdf-read.ts` tracing warning. `scripts/smoke-server.mjs` passed.
+  - **Browser check:** the built standalone server on two scratch profiles, seeded through the stores and the real unit start, and Electron 44 (headless platform, offscreen window) driven by `puppeteer-core`, in Ivory and Default. Each run checked:
+    - the header menu ("Rename course", "Delete course…");
+    - the dialog's line ("its 2 unit sessions, and their 1 note") and the unchecked box;
+    - the "Download notes" archive (200, `linear-algebra-notes.zip`);
+    - Delete refused by a running job in unit 2, naming it, with nothing deleted;
+    - Try again after the job finished: the open overview went home, the group left the sidebar, the other course, the standalone and the practice session stayed, the records and course folder were gone, and the proposition and graph folder were kept;
+    - at 640 px, the dialog fitting, then deleting the second course with its traces: its proposition and graph folder were removed.
+    - The console showed the refusal's 409, the dictation token's expected 503, and two 404s from the open overview refetching its own course while it was being deleted, just before it went home.
+  - **Screenshots:** `40-course-menu` through `45-after-delete-traces` (Ivory and Default) under the session scratchpad's `bc/shots/`.
+- **Found during the check, not a defect:** the server's stale-job sweep (off the `/api/jobs` poll) settles a seeded "running" job when no model is configured. The browser check therefore writes its blocking job just before pressing Delete.
+- **Human checks owed:** none required by the plan for this item. The dialog's look and the wording in the README entry are open to the human's review.
+
+### Item 9 review follow-up (2026-11-14)
+
+- **Authorized:** repair the three review findings, preserving the approved behavior, storage formats, dependencies, and wording.
+- **Built:**
+  - Course removal deletes notes, progress, and other entries before `course.json`; a cleanup error returns the existing retryable 500 and leaves the course readable.
+  - Course deletion purges graph traces for all recorded member ids, even if a session is missing or unreadable. Unreadable session records remain untouched. Success returns all member ids so navigation also handles sessions removed by a previous attempt.
+  - Single-session deletion rechecks the extraction registry before purging. A late extraction is aborted and gets the existing retryable 503; a subsequent deletion finishes after it settles.
+- **Regression coverage:** four new cases in `tests/course-deletion.test.tsx`: a real note-directory permission failure followed by a successful retry; missing and unreadable member sessions with graph contributions; and a real extraction pipeline started during deletion. The existing partial-failure case now checks the complete member-id response. Every new case failed on its original defect before its fix; the permission case skips on platforms that cannot enforce it.
+- **Verification:** all 104 focused tests pass across course deletion, course rules/store, course notes, graph deletion, and job delivery/recovery. Typecheck passes; lint has zero errors and its inherited `tests/source-name-ui.test.tsx` warning. The full suite passes: **5,610 passed, 0 failed, 4 skipped** (5,614 tests). All test commands explicitly set scratch data/auth paths.
+- **Build and runtime:** the production build, payload assembly, and `scripts/smoke-server.mjs` pass from an isolated source/dependency copy that excludes learning profiles and credentials. The build retains the inherited `pdf-read.ts` tracing warning. Targeted HTTP checks against that built standalone server confirm missing-member graph removal and the complete member-id response, then a real note-directory permission failure returning 500 with the course still readable. Retrying with `delete-nodes` removes the folder and traces of sessions deleted by the first attempt. The server and HTTP fixture profile are cleaned up afterwards.
+- **Final review:** the new tests exercise real routes/filesystem/pipeline behavior and were observed failing before their fixes. No remaining findings in the three repairs. These are server/store repairs; the existing browser check above was not repeated. Changes remain uncommitted.
+
+### Item 10 (2026-11-14)
+
+- **Built:**
+  - **`docs/architecture.md`:**
+    - "Courses and units (fork)" under Teaching and practice covers membership and crash adoption, setup, unit starts and the course's graph folder, the per-turn course context, the lifecycle and revision routes, evidence sync (where it runs, and which writes stamp `updatedAt`), and course deletion.
+    - "Unit handoffs (fork)" under Background work covers the writer's role, pool, validation, identity by `writtenAt`, Background agents row, and failure and restart behavior.
+    - Unit notes resolution joins the notes section, the handoff writer joins the shared worker pool's list, and the agents table gains a "Course setup" row.
+    - Storage gains the courses row, the course record joins the version guards, and a paragraph covers the course store's writes, refusals and record-last removal. The chains/picker projection names setup sessions, and the test starting points name the course files.
+  - **`src/agent/prompts/README.md`:** the setup agent's composition row and phase line, plus a "Course prompts (fork)" section naming where the setup doctrine, unit doctrines, course tool descriptions and handoff writer prompt live. It states that they are fixed in code (the plan's approved proposal) and where the unit segment sits in the composed prompt. The earlier one-line handoff-writer mention moved into that section.
+  - **Fork README:** the fixed-prompts decision, the courses feature status and roadmap step 4 (implemented, awaiting the human checks), and a "Step 4, courses and units" entry under Pending human checks with the plan's three checks.
+  - **`docs/development.md`:** no change. Item 6 already added `handoffWriter` to `LH_BACKGROUND_CAPTURE`, and the code confirms it: the writer runs through `runSubagent` with that role, which creates the capture.
+- **Agent-selected:**
+  - The course material sits in fork-marked subsections and table rows next to the upstream text it extends, rather than rewriting upstream paragraphs.
+  - Compaction details link to `docs/compaction-accounting.md`, which item 4's repair already updated, instead of repeating them.
+- **Review against the code:** every claim was checked in `src/store/courses.ts`, `src/server/courses.ts`, `src/server/handoffs.ts`, `src/server/notes.ts`, `src/server/chats.ts`, `src/server/chat-handler.ts`, `src/agent/teacher-agent.ts`, `src/agent/course-prompts.ts`, `src/agent/subagents/handoff-writer.ts`, `src/agent/subagents/pi-run.ts`, `src/core/source-organization.ts`, and the course pages' event and reconnect hooks. Three draft statements were corrected before the gate:
+  - Setup-link adoption happens on setup-session reads, not course reads.
+  - The sync's idempotent ids cover answer and practice events; lifecycle and revision events are written by the service actions.
+  - The writer refuses a judgment of any topic other than an unchecked one, not only of graded topics.
+
+  A scripted check found no broken relative link or anchor in the five edited files.
+- **Checks** (scratch `LH_DATA_DIR` and `LH_AUTH_FILE` on every command):
+  - Typecheck passed. Lint passed with the inherited warning in `tests/source-name-ui.test.tsx`.
+  - Full suite: **5,610 passed, 0 failed, 4 skipped** (5,614 tests).
+  - No build or browser check: this item changes documentation only.
+- **Human checks owed:** the plan's three (a real setup and unit, the handoff, `progress.md`), listed in the fork README.
+
+### Further review repairs (2026-11-14)
+
+- **Authorized:** fix the four follow-up findings. The human approved blocking Delete while notes load or any unit's notes cannot be read, displaying the read error with a count-reload "Try again", and keeping Cancel available. No dependencies or storage-format changes; no commits.
+- **Built:**
+  - Final course removal unlinks `course.json` only after cleaning the other entries, then removes the empty directory. If that last operation fails, the existing atomic writer restores the original record bytes before the error propagates. Unknown fields and membership survive for retry.
+  - The batch session purge retries legacy-note cleanup for every member id, including missing and unreadable session records. Unreadable chat files remain untouched.
+  - The deletion dialog distinguishes an unknown note count from zero, blocks its button and handler until all unit notes are readable, names unreadable units, and retries the count separately from a deletion refusal. A keyed dialog opening resets state; responses from closed or replaced openings are ignored.
+  - The fork README now limits the no-cancellation guarantee to initial work-gate refusals and documents which refusals carry `code` and `chatId`. The architecture describes record restoration, note-cleanup retries and the note-count gate.
+- **Regression coverage:** extended `tests/course-deletion.test.tsx` with real filesystem-permission failures for final directory removal and legacy-note cleanup, successful retries, exact record restoration, and legacy notes belonging to missing/unreadable sessions. Added `tests/delete-course-dialog-interaction.test.tsx` for pending/unreadable notes, read retry, request/network failure, Cancel, deletion-refusal retry, and stale responses across course switches and close/reopen. The review's original defects had already been reproduced in scratch profiles; the new tests were run after the fixes.
+- **Focused verification:** 61 tests passed across course deletion, dialog interactions, course rules/store and course notes, with no failures or skips.
+- **Browser verification:** a real WebKit tab against the scratch-profile development server showed "Reading notes…" with Delete disabled, then a named-unit newer-index error with Delete disabled and Cancel enabled. At 640 px the warning and actions fit. After repairing that fixture's index and clicking the count retry, the dialog showed its one note, enabled Delete and exposed an archive returning 200. Delete removed the course folder and member sessions, returned the open overview home, and kept a standalone session. No page exceptions; the deleted overview's refetch and the explicit deletion check produced expected 404s.
+- **Implementation limits:** restoration still depends on the filesystem accepting the restoring write; it is not protection against a second independent storage failure or power loss. Permission regressions skip root and Windows. No production build was repeated for these repairs. Scratch browser/server fixtures were isolated from real profiles.
+- **Quality gate:** typecheck passed after correcting unchecked request-array access in the new interaction-test helper. Lint passed with zero errors and the inherited `tests/source-name-ui.test.tsx` warning. The full suite passed: **5,616 passed, 0 failed, 4 skipped** (5,620 tests). All commands used scratch data/auth paths and Node 26 through mise. The scratch browser/server profile was removed; changes remain uncommitted.

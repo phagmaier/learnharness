@@ -1,6 +1,6 @@
 # Prompt composition
 
-The runtime composes prompts for **prober**, **teacher** and **practice** agents. The source of truth is [`listSourceSegments` / `effectivePromptSegments`](../prompt-segments.ts); [`composeInstructions`](../teacher-agent.ts) selects effective text, trims each segment, drops empty segments and joins them with `\n\n---\n\n`. Non-fragment documentation such as this README never enters the prompt.
+The runtime composes prompts for **prober**, **teacher** and **practice** agents, plus the fork's course **setup** agent. The source of truth is [`listSourceSegments` / `effectivePromptSegments`](../prompt-segments.ts); [`composeInstructions`](../teacher-agent.ts) selects effective text, trims each segment, drops empty segments and joins them with `\n\n---\n\n`. Non-fragment documentation such as this README never enters the prompt.
 
 ## Composition order
 
@@ -9,6 +9,7 @@ The runtime composes prompts for **prober**, **teacher** and **practice** agents
 | Prober | [`system-prompt.md`](../system-prompt.md) → sorted `prober/` fragments → sorted `shared/` fragments |
 | Teacher | `system-prompt.md` → sorted `teacher/` fragments → sorted `shared/` fragments |
 | Practice | sorted `practice/` fragments → the curated shared appendix below; **no teaching base** |
+| Course setup (fork) | `system-prompt.md` → the fixed setup doctrine ([below](#course-prompts-fork)) → sorted `shared/` fragments; **no `prober/` fragments**; composed by `composeSetupInstructions` in [`teacher-agent.ts`](../teacher-agent.ts) |
 | Side questions | [`side-chat/00-base.md`](side-chat/00-base.md) → shared `10-voice.md`, `15-accuracy.md`, `40-formatting.md` → final side-only [`90-style.md`](side-chat/90-style.md); composed by [`src/agent/side-chat.ts`](../side-chat.ts), not by the segment loader |
 
 Directory discovery accepts only filenames matching `^\d+-[\w.-]+\.md$` and sorts them lexicographically by filename. Keep numeric prefixes consistently padded when order matters. The teaching base supplies the agent's purpose/philosophy; voice, accuracy, mental-model, question, confidence, file and formatting guidance are separate shared fragments. The teacher's method and planning/teaching doctrine live in its own directory; probing doctrine lives in `prober/`.
@@ -38,10 +39,22 @@ The available segment list always comes from current source discovery. An overri
 ## Phases and tool contracts
 
 - Teaching sessions start with the prober. A successful `probe_done` call **and matching result** select the teacher on later turns; a bare/refused call does not. The teacher plans and teaches with its own tool registry. The displayed plan → teach boundary is the first tagged `quiz`/`explain` call, not simply `plan_init`.
+- Course setup sessions (fork) use the setup agent from turn one. It has the prober's tools except `probe_done`, plus `propose_course`, so it never becomes the teacher.
 - Practice sessions use the practice prompt from turn one. `problem` commits a solution before posing; `conclude` reveals it. The doctrine requires a pause after conclusion until the learner explicitly moves on. This is a conversational agent, not the retired problem-set generation/grading pipeline.
 - Prompt instructions are not a substitute for structural validation. For example, `plan_init` can rewrite the map, and the conclude pause is doctrine rather than a terminating execute result. Read the actual registry and schemas before describing a behavior as enforced.
 
-See [architecture](../../../docs/architecture.md#teaching-and-practice) for runtime phases, registry differences and pause mechanics; [teaching methodology](../../../docs/teaching-methodology.md) for the method. Background workers and extraction have their own instructions in their implementation modules; this loader is not a catalog of every prompt in the application. The fork's study-note writer is one of them: its system prompt (with the interactive-note variant) and user-message format live in [`subagents/note-writer.ts`](../subagents/note-writer.ts), are not Settings → Prompts segments, and have no overrides. The same holds for the course handoff writer's prompt and user-message format, in [`subagents/handoff-writer.ts`](../subagents/handoff-writer.ts).
+See [architecture](../../../docs/architecture.md#teaching-and-practice) for runtime phases, registry differences and pause mechanics; [teaching methodology](../../../docs/teaching-methodology.md) for the method. Background workers and extraction have their own instructions in their implementation modules; this loader is not a catalog of every prompt in the application. The fork's study-note writer is one of them: its system prompt (with the interactive-note variant) and user-message format live in [`subagents/note-writer.ts`](../subagents/note-writer.ts), are not Settings → Prompts segments, and have no overrides.
+
+## Course prompts (fork)
+
+Course phase 1 ([plan 04](../../../docs/fork/plans/04-courses-and-units.md)) keeps its prompts fixed in code. None of them is a Settings → Prompts segment, and none has an override.
+
+- **Setup doctrine** (`SETUP_DOCTRINE` in [`course-prompts.ts`](../course-prompts.ts)): the setup agent's doctrine, placed as in the table above. The base and shared fragments around it still honor enabled overrides by their usual keys.
+- **Unit doctrines** (`PROBER_UNIT_DOCTRINE`, `TEACHER_UNIT_DOCTRINE`, same file): on each turn of a unit session, the prober's or teacher's normal composition gets one more segment appended. It holds that agent's unit doctrine, then the course context composed from the course record for that turn. It comes after the agent's own segments (and `send_to_user`'s delivery rule, when that applies) and before plugin instructions. Other sessions never receive it.
+- **Course tool descriptions** (same file): `propose_course` for setup, and `goal_reached` and `propose_course_changes` for a unit's teacher.
+- **Handoff writer**: its system prompt and user-message format live in [`subagents/handoff-writer.ts`](../subagents/handoff-writer.ts), like the note writer's.
+
+The wording is the plan's approved text. In this fork, changing it is a product decision for the human ([decision authority](../../../AGENTS.md#decision-authority)).
 
 ## Editing fragments
 
