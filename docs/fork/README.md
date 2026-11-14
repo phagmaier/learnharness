@@ -198,6 +198,16 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Agent-selected implementation:* retain the original course record for restoration if final directory removal fails, and retry legacy-note cleanup independently of session-record availability. Unknown note counts stay distinct from zero; only a complete successful notes read enables Delete.
 
+### Books item 1 review repairs — 2026-11-14, human
+
+Fix all thirteen review findings within item 1: preserve non-Latin and rotated PDF text; preserve EPUB mathematical/accessibility text, UTF-16 documents, inline page boundaries and encoded anchors; refuse missing spine documents with the existing unreadable-file message; repair sparse-outline confidence, compound labels, hyphenated ranges and selected-root budget collapse; and protect newer or damaged maps during contents acceptance and switching.
+
+Page locations prefer printed labels and use one numbering scheme for the whole range. Physical numbering is a fallback only when neither endpoint has a matching printed label; a partially matching printed range is refused instead of mixing schemes.
+
+The approved repair plan includes focused regression coverage, the required quality gate with scratch profiles, and updates to the existing plan outcome. No dependencies, storage-format changes, UI changes, commits, or real learning data.
+
+*Human, repair implementation:* when a hyphenated range has multiple valid endpoint pairs, refuse it with `"<input>" matches several ranges. Use section ids with "to".` rather than selecting one or reusing the unknown-location message.
+
 ## Feature designs
 
 ### Courses, units, and notes
@@ -248,11 +258,11 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 ### Books
 
-**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items; not yet implemented. Built right after course phase 1 (see build order below).
+**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs; items 2–8 remain. Built right after course phase 1 (see build order below).
 
 **Problem (human):** to study a specific text (e.g. Hegel's *Phenomenology of Spirit*), the learner wants to add the book. The whole book should never sit in context, but it should be reachable when needed.
 
-**Current behavior (verified):** a session can receive a PDF path. The teacher dispatches a `pdf` job (`src/agent/subagents/pdf-reader.ts`) with a question; for long PDFs it keyword-searches, reads only the matching pages, and returns a brief with page citations. Nothing persists between questions: no table of contents or book structure, and every question re-triages from scratch. EPUB is unsupported. No embeddings exist anywhere in the app. Graph import ("Extract files") turns text into propositions but discards the text itself.
+**Starting point (before plan 05):** a session can receive a PDF path. The teacher dispatches a `pdf` job (`src/agent/subagents/pdf-reader.ts`) with a question; for long PDFs it keyword-searches, reads only the matching pages, and returns a brief with page citations. Nothing persists between questions: no table of contents or book structure, and every question re-triages from scratch. EPUB is unsupported. No embeddings exist anywhere in the app. Graph import ("Extract files") turns text into propositions but discards the text itself.
 
 **Decided (2026-11-12, human):**
 - *Book map, not embeddings RAG.* A one-time import converts the book to text and splits it along its own structure (parts, chapters, sections, numbered paragraphs such as the *Phenomenology*'s §1–§808). The Cheap model writes a short summary and key terms for each section, producing a compact hierarchical map. Agents receive the relevant part of the map, pull exact text with a "read section" tool, and fall back to keyword search. **Why:** embeddings need an extra paid provider (neither the ChatGPT subscription nor Claude Code offers one) plus a vector store, and similarity-chunk retrieval loses a passage's place in the argument, which is the meaning in a text like Hegel's.

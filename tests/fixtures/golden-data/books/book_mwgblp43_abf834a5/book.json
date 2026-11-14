@@ -1,0 +1,27 @@
+{
+	"id": "book_mwgblp43_abf834a5",
+	"title": "A Golden Method",
+	"format": "epub",
+	"fileName": "a-golden-method.epub",
+	"sha256": "5d1a597e37b3c6cfd7112969c6cc4d219ce97fa6f33d6d4f0892511af8b20da0",
+	"bytes": 1973,
+	"importedAt": "2026-11-14T11:26:31.779Z",
+	"updatedAt": "2026-11-14T11:26:32.049Z",
+	"import": {
+		"status": "ready"
+	},
+	"mapWriter": {
+		"status": "not-needed",
+		"done": 0,
+		"total": 0
+	},
+	"version": 1,
+	"author": "Fixture Author",
+	"words": 279,
+	"structure": "outline",
+	"confidence": {
+		"level": "confident",
+		"reasons": []
+	},
+	"contentsAccepted": "auto"
+}

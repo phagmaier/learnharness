@@ -99,6 +99,19 @@ async function openBytes(data: Uint8Array, signal?: AbortSignal, loadTask: PdfTa
 	}
 }
 
+/** Open a PDF from bytes, run `use` on the document, and destroy it after,
+ * also on failure (fork plan 05: the book importer walks pages itself). The
+ * bytes are copied first: pdfjs may detach the buffer it is given. Throws
+ * pdfjs's own error for an unreadable file. */
+export async function withPdfDocument<T>(data: Uint8Array, use: (doc: import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy) => Promise<T>, signal?: AbortSignal): Promise<T> {
+	const { doc, task } = await openBytes(new Uint8Array(data), signal);
+	try {
+		return await use(doc);
+	} finally {
+		await task.destroy().catch(() => {});
+	}
+}
+
 /** Concatenate a page's text items into a body string. */
 function itemsToText(items: unknown[]): string {
 	let out = "";

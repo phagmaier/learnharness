@@ -1,6 +1,6 @@
 # Plan 05: books (roadmap step 5)
 
-**Status:** approved by the human 2026-11-14, including its Proposed items. Nothing is implemented yet. Work happens on a branch off `main` once plan 04's branch is merged (the human decides when), one commit per item. Checkpoints after items 3 and 5 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-14, including its Proposed items. Item 1 is implemented, including review repairs; items 2–8 remain. Work happens on the books branch off `main`, one commit per item when requested. Checkpoints after items 3 and 5 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Books". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -79,7 +79,7 @@ data/books/<bookId>/
 ```
 
 - **`book.json`**, written by temp file and rename, refused (409) when newer or damaged, unknown fields kept: `id`, `title`, `author?`, `format` (`pdf` | `epub` | `text` | `markdown`), `fileName`, `sha256`, `bytes`, `importedAt`, `updatedAt`, `pageCount?`, `words`, `structure` (`outline` | `headings` | `numbered` | `app-made` | `model`), `confidence` (`confident` | `unsure`, with `reasons[]`), `contentsAccepted` (`auto` | `learner`, absent while in review), `import` (`importing` | `review` | `ready` | `failed`, `error?`, `notice?`), `structureWriter?` (the optional model pass: `writing` | `ready` | `failed`, `error?`, `stopped?`, `model?`, `usage?`), and `mapWriter` (`waiting` | `not-needed` | `writing` | `ready` | `failed`, `done`, `total`, `error?`, `stopped?`, `model?`, `usage?`).
-- **`candidates.json`**: the structures each method found at import (bookmarks or EPUB contents, numbered paragraphs, headings, app-made parts), so "Not right" can switch between them without reconverting. Removed once the contents are accepted.
+- **`candidates.json`**: the structures each method found at import (bookmarks or EPUB contents, numbered paragraphs, headings, app-made parts), so "Not right" can switch between them without reconverting. *Agent-selected correction (item 1):* it is kept after acceptance, because item 3 keeps "Not right" available until a session or course uses the book.
 - **`text.json`**: `{ version: 1, blocks: [{ id, kind: "heading" | "paragraph", text, page?, pageLabel? }] }`. Block ids are their index. The text is never rewritten after import.
 - **`map.json`**: `{ version: 1, nodes: [{ id, parentId?, label, title, kind, level, firstBlock, lastBlock, pages?, summary?, terms? }] }` in book order. `label` is what citations show: "§187", "IV.A", "Chapter 2", "Part 14" (app-made). `kind` is `part` | `chapter` | `section` | `paragraph` | `app-part`.
 - **Chat records** gain one optional field, `book: { bookId }`, on standalone Teach sessions and course setup sessions. The chat version stays 2.
@@ -281,4 +281,52 @@ Items 1–3 stand alone (a library with no agent use). Items 4–5 give standalo
 
 ## Outcome
 
-Not started.
+### Item 1 (2026-11-14)
+
+- **Built:**
+  - Contracts in `src/core/contracts/book.ts`: the record, blocks with page breaks, map nodes, candidates, ranges, the chat's `book` field and the course's `book` and units' `reading` (declared only; nothing sets them before item 4), and quote details for item 5.
+  - Pure rules in `src/core/book.ts`, exported through the core barrel: normalization with an offset map, word counts, the garbled-text check, numbered-paragraph runs, the four candidates and their confidence, the choice, location resolution, and the outline, detail and range texts with their budgets.
+  - Converters in `src/server/book-import.ts`:
+    - PDF, through a new `pageLines` export of `pdf-markdown.ts` (the same lines and heading levels the notes converter uses, plus each line's right edge) and a `withPdfDocument` helper in `pdf-ops.ts`;
+    - EPUB, through a new minimal zip reader (`src/server/unzip.ts`);
+    - text and Markdown.
+  - The store `src/store/books.ts` (`PATHS.books`) with the version guard on the record and data files, and the `books-changed` event. `writeFileAtomicSync` now also takes bytes, for the original file.
+  - The service `src/server/books.ts`: import with up-front refusals, background conversion, automatic acceptance of confident contents, review, switching, interruption and Try again, rename, and the library summaries. A `contentsAccepted` seam is where item 2 starts the map writer.
+  - Routes: `GET/POST /api/books`, `GET/PUT /api/books/:id`, `GET/PUT /api/books/:id/contents`, `POST /api/books/:id/retry-import`.
+  - The plugin API reference was regenerated (`docs/plugin-api/`): the chat record's `book` field and `books-changed`. No callable API was added.
+  - A golden book under `tests/fixtures/golden-data/books/`, written by the real import service.
+- **Agent-selected:**
+  - **PDF paragraphs:** a paragraph breaks at a heading, a gap over 1.6 line spacings, a first-line indent, a short line ending in punctuation, or a numbered start after a finished sentence. It continues onto the next page when it doesn't end a sentence and the next page's first line isn't indented, recording the page break's offset.
+  - **Running heads:** a line in a page's top or bottom two positions is dropped when its text (digits and roman numerals ignored) appears there on at least 3 pages and a fifth of the book, or when it is only a page number. Lines set as level-1 or level-2 headings are never dropped.
+  - **Line-end hyphens:** kept when the joined word appears hyphenated elsewhere in the book ("well-known"), else dropped ("hyphen-ated" becomes "hyphenated"). Quote and search normalization drop hyphens between letters on both sides, so either reading matches.
+  - **EPUB:** XHTML content documents parse as XML, so a self-closing print page mark stays empty; `text/html` items parse as HTML. Text is kept plain (emphasis markup is not kept). Font obfuscation (IDPF and Adobe) is allowed; any other encryption, or `META-INF/rights.xml`, is refused as DRM.
+  - **Confidence of a file's own contents:** a stretch counts as a gap only when it is over a quarter of the book **and** over four times the outline's typical entry. A book of two halves is fine; forty bookmarks in its first fifth are not. The plan's flat quarter rule called a correct two-part outline unsure. Titles must appear near their destination for 70% of entries.
+  - **Numbered runs:** start at 1–3, accept the next number or up to three ahead, and resync after a larger jump only when the next two starts continue from it. At least 10 starts make a candidate.
+  - **Labels:** a title's numbering when it has one ("IV", "Chapter 2", "1.3"), else the title shortened to 40 characters. Numbered paragraphs are cited "§N" whatever their printed form.
+  - **Refusals before a record exists:** type, size, duplicate content, an unreadable PDF, too many pages, a protected EPUB, binary text. The no-text-layer and garbled checks need the whole conversion, so they settle on the record as a failed import with the reason.
+  - **Short books:** `mapWriter` is `not-needed` when the accepted contents' book has fewer than 20,000 words.
+  - **Wording the plan didn't specify:** reasons such as "The bookmarks aren't in the text's order.", "Only 2 of 4 bookmarks point to a place in the text.", "The table of contents has only 1 entry.", "The paragraph numbers have gaps: 25 of 1–30 found.", "Some paragraph numbers repeat or run backwards (3 times), for example in notes or lists.", "The numbered paragraphs start late in the text.", "This file has no readable text.", "The import failed. Try again.", "The import was interrupted.", and descriptions such as "§1–§30 under 2 headings", "2 entries, §1–§30 within them", "3 headings", "5 parts of about 2,000 words".
+- **Checks:**
+  - Typecheck passed. Lint passed with the inherited warning in `tests/source-name-ui.test.tsx`.
+  - Full suite: **5,670 passed, 0 failed, 4 skipped** (5,674 tests), with scratch `LH_DATA_DIR` and `LH_AUTH_FILE`.
+  - New: `tests/books.test.ts` (32) and `tests/book-import.test.ts` (21), with expected values worked by hand, plus a golden case in `tests/golden-fixtures.test.ts`. `tests/helpers/tiny-pdf.ts` gained bookmarks, page labels and document info.
+  - **Mutation checks:** each of these fails its targeted test: the flat quarter gap rule; no resync in numbered runs; keeping running heads; always dropping line-end hyphens.
+  - The EPUB walker's first draft lost the text after a self-closing page mark; the converter test caught it, which led to parsing XHTML as XML.
+- **Moved to item 4:** the test "refusing to attach a book still in review" needs attaching, which item 4 builds.
+- **Not done in this item:** no build or browser check (no UI yet); the performance check on a 600-page PDF follows item 2, as planned.
+
+### Item 1 review repairs (2026-11-14)
+
+The human approved fixing all thirteen findings within item 1, without new dependencies, storage-format or UI changes, commits, or access to real learning data.
+
+- **PDF fidelity:** the garbled-text check accepts Cyrillic/CJK prose while retaining Latin nonword, symbol and broken-glyph checks. Rotated text is retained, excluded from repeated-margin removal, and kept separate from differently oriented paragraphs.
+- **EPUB fidelity:** MathML/SVG retain text or one accessible alternative without repeated metadata; XML decoding handles UTF-8 and UTF-16 in either byte order; missing spine content is refused with the existing unreadable-file message. Inline print-page marks retain the starting page and normalized UTF-16 boundary offsets. URI fragments are decoded before anchor lookup.
+- **Structure and locations:** leading outline coverage is checked even for two entries, without rejecting two valid halves. Printed labels take precedence consistently across a page range; omitted labels still mean the printed number equals the physical number. Compound labels such as `IV.A` and ranges containing hyphenated endpoint labels resolve correctly. Selected reading roots retain their relative hierarchy during budget collapse.
+- **Map guard:** accepting the shown contents, explicitly reaccepting its method, and switching candidates all check the existing map before any write or writer callback. Newer and damaged maps return 409 and leave the record and map byte-identical.
+- **Agent-selected implementation:** preserve plain text rather than adding a math renderer; normalize EPUB whitespace while recording boundaries; resolve ranges by their valid endpoint pairs; compute detail depth within the selected forest. Storage versions and exported signatures are unchanged.
+- **Additional wording approval:** the human approved `"<input>" matches several ranges. Use section ids with "to".` for ambiguous endpoint splits.
+- **Regression proof:** fourteen added cases cover all thirteen findings (the map guard covers newer and damaged files separately). Restoring the six former core failure mechanisms in an isolated copy fails all six corresponding cases, while its 32 pre-existing core cases pass. Replaying the preserved original converter and unguarded acceptance service fails the eight converter/map-guard cases while the 21 pre-existing import cases pass. The repaired books/import/golden checks pass all 81 cases.
+- **Runtime proof:** a generated PDF containing only rotated text imports as one page with its full extracted sentence. The first rotated regression fixture placed text outside the page; correcting its coordinates kept the expected text intact rather than weakening the assertion.
+- **Focused checks:** typecheck passed. Lint passed with the inherited `tests/source-name-ui.test.tsx` warning. The books/import/golden run passed 81 cases; the shared PDF and atomic-write checks passed 60 cases with one Windows-only skip. All runs used scratch data/auth paths.
+- **Required full test gate:** 5,684 passed, 0 failed, 4 skipped (5,688 tests), with scratch `LH_DATA_DIR` and `LH_AUTH_FILE`. No build or browser check was run for these backend-only repairs. The existing item-2 performance check and later UI checkpoints remain unchanged.
+

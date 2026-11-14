@@ -164,11 +164,12 @@ export interface ChatRecord {
     settings?: ChatSettings;
     sideChats?: SideChatThread[];
     course?: ChatCourseLink;
+    book?: ChatBookLink;
     version?: number;
 }
 ```
 
-**Related types:** [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
+**Related types:** [ChatBookLink](contracts-book.md#chatbooklink), [ChatCourseLink](contracts-course.md#chatcourselink), [ChatKind](contracts-chat.md#chatkind), [ChatSettings](contracts-chat.md#chatsettings), [ExtractionRunUsage](contracts-chat.md#extractionrunusage), [ImageSnapshot](contracts-chat.md#imagesnapshot), [LhMessage](native-messages.md#lhmessage), [PlanTree](contracts-plan.md#plantree), [SideChatThread](contracts-chat.md#sidechatthread), [TurnUsage](contracts-chat.md#turnusage).
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
@@ -185,6 +186,7 @@ export interface ChatRecord {
 - [settings](#chatrecord-settings)
 - [sideChats](#chatrecord-sidechats)
 - [course](#chatrecord-course)
+- [book](#chatrecord-book)
 - [version](#chatrecord-version)
 
 ### ChatRecord id
@@ -286,6 +288,16 @@ unit's practice). Additive: older builds ignore and keep it.
 
 ```ts
 course?: ChatCourseLink;
+```
+
+### ChatRecord book
+
+Fork plan 05: the library book attached when the session started (a
+standalone Teach session or a course setup). Unit sessions take their
+course's book. Additive, like `course`.
+
+```ts
+book?: ChatBookLink;
 ```
 
 ### ChatRecord version

@@ -18,3 +18,4 @@ export * from "./contracts/probe.ts";
 export * from "./contracts/models.ts";
 export * from "./contracts/notes.ts";
 export * from "./contracts/course.ts";
+export * from "./contracts/book.ts";

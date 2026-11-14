@@ -31,6 +31,8 @@ interface Line {
 	size: number;
 	y: number;
 	x0: number;
+	/** Right edge of the line's last visible glyph. */
+	x1: number;
 }
 
 interface PageScan {
@@ -98,6 +100,7 @@ function toLine(glyphs: Glyph[]): Line | null {
 		size: Math.max(...visible.map((g) => g.size)),
 		y: first.y,
 		x0: Math.min(...visible.map((g) => g.x)),
+		x1: Math.max(...visible.map((g) => g.x + g.width)),
 	};
 }
 
@@ -213,12 +216,14 @@ function titleFirst(lines: Line[], body: number): Line[] {
 	return [...lines.slice(i, j), ...lines.slice(0, i), ...lines.slice(j)];
 }
 
+// Levels by size relative to the page's body: ranking every size fails on slides, where one 72pt figure label takes level 1.
+function headingLevel(l: Line, body: number): 0 | 1 | 2 | 3 {
+	if (l.rotated || BULLET.test(l.text) || roundSize(l) < body + 1.95 || !mostlyLetters(l.text)) return 0;
+	return l.size >= body * 1.6 ? 1 : l.size >= body * 1.3 ? 2 : 3;
+}
+
 function toBlocks(lines: readonly Line[], body: number): Block[] {
-	// Levels by size relative to the page's body: ranking every size fails on slides, where one 72pt figure label takes level 1.
-	const levelOf = (l: Line): 0 | 1 | 2 | 3 => {
-		if (l.rotated || BULLET.test(l.text) || roundSize(l) < body + 1.95 || !mostlyLetters(l.text)) return 0;
-		return l.size >= body * 1.6 ? 1 : l.size >= body * 1.3 ? 2 : 3;
-	};
+	const levelOf = (l: Line) => headingLevel(l, body);
 	const blocks: Block[] = [];
 	const listXs: number[] = []; // x of each open list depth
 	for (const l of lines) {
@@ -288,6 +293,42 @@ export async function documentToMarkdown(doc: PDFDocumentProxy, pageNumbers?: re
 	}
 	signal?.throwIfAborted();
 	return out;
+}
+
+/** One extracted line with its geometry, for the book importer (fork plan 05),
+ * which rebuilds paragraphs and drops running heads that this converter keeps. */
+export interface PdfLine {
+	text: string;
+	size: number;
+	y: number;
+	x0: number;
+	x1: number;
+	rotated: boolean;
+	/** 1–3 for a line set as a heading on its page, else 0. */
+	heading: 0 | 1 | 2 | 3;
+}
+
+export type PdfPageLines =
+	| { kind: "text"; number: number; body: number; lines: PdfLine[] }
+	| { kind: "image-only"; number: number }
+	| { kind: "empty"; number: number };
+
+/** One page's lines in reading order, judged as documentToMarkdown judges them
+ * (same columns, title order, body size and heading levels). The page is
+ * released after scanning, so a long book never holds every page at once. */
+export async function pageLines(doc: PDFDocumentProxy, number: number, signal?: AbortSignal): Promise<PdfPageLines> {
+	signal?.throwIfAborted();
+	const page = await doc.getPage(number);
+	try {
+		const scan = await scanPage(page, signal);
+		if (!scan.lines.length) return { kind: (await drawsImage(page, signal)) ? "image-only" : "empty", number };
+		const top = Math.max(...scan.lines.map(roundSize));
+		const body = bodySize(scan.lines.filter((l) => roundSize(l) < top)) || bodySize(scan.lines);
+		const lines = titleFirst(scan.lines, body).map((l) => ({ ...l, heading: headingLevel(l, body) }));
+		return { kind: "text", number, body, lines };
+	} finally {
+		page.cleanup();
+	}
 }
 
 /** The pages that carry text, each under a `--- Page N ---` marker (the pdf-reader's existing format). */

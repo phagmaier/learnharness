@@ -23,6 +23,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 
 ## Modules
 
+- [contracts-book](contracts-book.md)
 - [contracts-chat](contracts-chat.md)
 - [contracts-course](contracts-course.md)
 - [contracts-graph](contracts-graph.md)
@@ -195,6 +196,7 @@ The SDK is **type-only**. Call the contexts supplied by LearnHarness, not runtim
 
 These are reachable through public data, event, inheritance or helper-type relationships. Types not re-exported from the SDK root cannot be imported by name from that root; access them through public types rather than private app imports.
 
+- [ChatBookLink](contracts-book.md#chatbooklink) — `contracts-book`
 - [CallUsage](contracts-chat.md#callusage) — `contracts-chat`
 - [ChatKind](contracts-chat.md#chatkind) — `contracts-chat`
 - [ChatSettings](contracts-chat.md#chatsettings) — `contracts-chat`
@@ -258,4 +260,4 @@ These are reachable through public data, event, inheritance or helper-type relat
 
 Standard JavaScript/DOM types (`Promise`, `AbortSignal`, `File`, `HTMLElement`, and utility types) use their standard contracts. Pi model/messages/tools and TypeBox schemas use the exact peer versions declared by the bundled SDK's `package.json`. Supply those peers when typechecking; they are development types, not permission to import private LearnHarness runtime modules.
 
-Coverage: **140 public types**, **58 supporting declarations**, **909 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.
+Coverage: **140 public types**, **59 supporting declarations**, **913 declared member signatures/variants**. Generation contains no build timestamps or absolute source paths.

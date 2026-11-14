@@ -41,6 +41,9 @@ const { jobStore } = await import("../src/store/jobs.ts");
 const { settingsStore } = await import("../src/store/settings.ts");
 const { listNotes } = await import("../src/server/notes.ts");
 const { courseStore } = await import("../src/store/courses.ts");
+const { bookStore } = await import("../src/store/books.ts");
+const { readBook } = await import("../src/server/books.ts");
+const { bookOutlineText, resolveBookLocation } = await import("../src/core/book.ts");
 const { handoffText, progressMarkdown } = await import("../src/core/course.ts");
 const { readRenderSettings } = await import("../src/store/render-settings.ts");
 const { getGraph, deriveView } = await import("../src/core/graph.ts");
@@ -259,6 +262,28 @@ test("courses: the course record reads through the course store with every event
 	assert.deepEqual(new Set(completed.handoff!.topics.map((topic) => topic.status)), new Set(["solid", "shaky", "unchecked", "not-reached"]));
 	assert.ok(handoffText(1, completed, completed.handoff!).includes("Teacher observations (model-written):"));
 	assert.ok(progressMarkdown(record).startsWith(`# ${record.title}\n`));
+});
+
+test("books: an imported EPUB reads through the book store and service, its contents found without a model (fork plan 05)", () => {
+	const { books, unreadable } = bookStore.list();
+	assert.deepEqual(unreadable, []);
+	assert.equal(books.length, 1);
+	const record = bookStore.get(books[0]!.id)!;
+	assert.equal(record.version, 1, "the book record carries its version stamp");
+	assert.equal(record.format, "epub");
+	assert.deepEqual([record.import.status, record.structure, record.contentsAccepted, record.mapWriter.status], ["ready", "outline", "auto", "not-needed"]);
+	assert.equal(bookStore.readOriginal(record).length, record.bytes);
+	const text = bookStore.readText(record.id)!;
+	assert.equal(text.version, 1);
+	assert.ok(text.blocks.some((block) => block.pageLabel === "2"), "an EPUB print page mark became a page label");
+	const map = bookStore.readMap(record.id)!;
+	assert.deepEqual(map.nodes.filter((node) => node.level === 1).map((node) => node.label), ["A", "B"]);
+	assert.equal(map.nodes.filter((node) => node.kind === "paragraph").length, 14, "numbered paragraphs nest inside the table of contents");
+	assert.deepEqual(bookStore.readCandidates(record.id)!.candidates.map((candidate) => candidate.method), ["outline", "numbered", "headings", "app-made"]);
+	const view = readBook(record.id);
+	assert.ok("book" in view && view.book.sections === map.nodes.length);
+	assert.equal((resolveBookLocation(map.nodes, text.blocks, "§9") as { range?: unknown }).range !== undefined, true);
+	assert.ok(bookOutlineText(map.nodes).startsWith("[n0] A. Certainty\n  [n1] §1"));
 });
 
 test("courses: the unit session record carries its course link, its opening marker, and goal_reached (fork plan 04)", () => {

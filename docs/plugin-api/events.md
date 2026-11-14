@@ -68,6 +68,9 @@ export interface ServerEvents {
     "courses-changed": {
         courseId: string;
     };
+    "books-changed": {
+        bookId: string;
+    };
     "plugins-changed": Record<string, never>;
     "plugin-message": {
         pluginId: string;
@@ -100,6 +103,8 @@ export interface ServerEvents {
 - ["notes-changed".chatId](#serverevents-notes-changedchatid)
 - ["courses-changed"](#serverevents-courses-changed)
 - ["courses-changed".courseId](#serverevents-courses-changedcourseid)
+- ["books-changed"](#serverevents-books-changed)
+- ["books-changed".bookId](#serverevents-books-changedbookid)
 - ["plugins-changed"](#serverevents-plugins-changed)
 - ["plugin-message"](#serverevents-plugin-message)
 - ["plugin-message".pluginId](#serverevents-plugin-messagepluginid)
@@ -284,6 +289,23 @@ Notify-then-fetch: open course views and the sidebar refetch
 
 ```ts
 courseId: string;
+```
+
+### ServerEvents "books-changed"
+
+A library book changed (imported, import settled, contents accepted
+or switched, renamed, map progress, deleted). Notify-then-fetch.
+
+```ts
+"books-changed": {
+    bookId: string;
+};
+```
+
+### ServerEvents "books-changed".bookId
+
+```ts
+bookId: string;
 ```
 
 ### ServerEvents "plugins-changed"

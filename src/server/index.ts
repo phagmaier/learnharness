@@ -11,6 +11,7 @@ export * from "./document-export.ts";
 export * from "./notes.ts";
 export * from "./courses.ts";
 export * from "./handoffs.ts";
+export * from "./books.ts";
 export * from "./graph.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";

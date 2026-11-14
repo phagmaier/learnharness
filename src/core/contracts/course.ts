@@ -10,6 +10,7 @@
  * crash.
  */
 import type { JobUsage } from "./jobs.ts";
+import type { BookRange, CourseBookLink } from "./book.ts";
 
 /** The course record format this build writes and understands. */
 export const CURRENT_COURSE_VERSION = 1;
@@ -77,6 +78,9 @@ export interface CourseUnit {
 	completion?: UnitCompletion;
 	completedAt?: string;
 	handoff?: UnitHandoff;
+	/** Fork plan 05: the unit's reading in a followed book; absent or empty
+	 *  for a unit that reads nothing from it. */
+	reading?: BookRange[];
 }
 
 /** One change to the unit list. `after: null` means at the start. */
@@ -175,6 +179,8 @@ export interface CourseRecord {
 	setupChatId: string;
 	/** The graph source folder holding the units' sessions. */
 	sourceFolderId?: string;
+	/** Fork plan 05: the book chosen when the course started. */
+	book?: CourseBookLink;
 	/** In suggested order. */
 	units: CourseUnit[];
 	proposals: CourseProposal[];

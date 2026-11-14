@@ -11,6 +11,7 @@ import type { Phase3 } from "../phases.ts";
 import type { PlanNodeStatus, PlanTree } from "./plan.ts";
 import type { EmissionStats } from "./graph.ts";
 import type { ChatCourseLink } from "./course.ts";
+import type { ChatBookLink } from "./book.ts";
 
 // ─── Chat records (the session store's on-disk format) ───────────────────────
 
@@ -51,6 +52,10 @@ export interface ChatRecord {
 	/** Fork plan 04: the session's place in a course (setup, unit, or a
 	 * unit's practice). Additive: older builds ignore and keep it. */
 	course?: ChatCourseLink;
+	/** Fork plan 05: the library book attached when the session started (a
+	 * standalone Teach session or a course setup). Unit sessions take their
+	 * course's book. Additive, like `course`. */
+	book?: ChatBookLink;
 	/** Schema version. Absence denotes version 1; writes stamp the current
 	 * supported version. Reads refuse records stamped newer than this build
 	 * so a downgraded app cannot rewrite an unsupported record. */

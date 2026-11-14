@@ -45,6 +45,9 @@ export interface ServerEvents {
 	 *  Notify-then-fetch: open course views and the sidebar refetch
 	 *  (fork plan 04). */
 	"courses-changed": { courseId: string };
+	/** A library book changed (imported, import settled, contents accepted
+	 *  or switched, renamed, map progress, deleted). Notify-then-fetch. */
+	"books-changed": { bookId: string };
 	/** Plugin availability/lifecycle changed; refetch installed packages. */
 	"plugins-changed": Record<string, never>;
 	/** Live-only, plugin-scoped notifications. Reconnect requires snapshot resync. */
@@ -69,6 +72,7 @@ export const SERVER_EVENT_TYPES = [
 	"side-chats-changed",
 	"notes-changed",
 	"courses-changed",
+	"books-changed",
 	"plugins-changed",
 	"plugin-message",
 ] as const satisfies readonly ServerEventType[];

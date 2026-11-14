@@ -38,6 +38,9 @@ export const PATHS = {
 	/** Courses (fork plan 04): courses/<courseId>/ holds course.json,
 	 * the regenerated progress.md, and notes/<chatId>/ per unit session. */
 	courses: path.join(/* turbopackIgnore: true */ DATA_ROOT, "courses"),
+	/** The books library (fork plan 05): books/<bookId>/ holds book.json,
+	 * the original file, text.json, map.json and candidates.json. */
+	books: path.join(/* turbopackIgnore: true */ DATA_ROOT, "books"),
 } as const;
 
 // ─── Models ────────────────────────────────────────────────────────────────

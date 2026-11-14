@@ -57,6 +57,14 @@ core tool surface must appear in real data here.
   (the handoff topics computed by the real topic rule from the fixture's own
   answers), since no session produced it.
 
+- `books/book_mwgblp43_abf834a5/` — a library book (fork plan 05, version
+  1): a small generated EPUB 3 with a table of contents, a print page mark,
+  and §1–§14 numbered paragraphs. Imported by the real books service
+  (`importBook`) against a scratch copy of this directory, with no model:
+  the contents were accepted automatically (bookmarks with numbered
+  paragraphs nested inside), and the map writer is "not-needed" for a book
+  this short. All five files are the service's own output.
+
 ## Regenerating / extending
 
 Run the app (`npm run dev`), exercise the feature against `data/`, then copy
