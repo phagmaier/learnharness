@@ -13,9 +13,12 @@ import type {
 	AnswerEvidence,
 	CourseChange,
 	CourseEvidence,
+	CourseProposal,
 	CourseRecord,
 	CourseUnit,
 	HandoffTopic,
+	ProposalView,
+	RevisionEvidence,
 	SessionCourseView,
 	UnitCompletion,
 	UnitHandoff,
@@ -232,11 +235,62 @@ export function applyCourseChanges(before: readonly CourseUnit[], changes: reado
 				replacePrerequisite(ids, [unit.id]);
 				return;
 			}
+			default:
+				// A change type a newer build wrote: never applied blindly.
+				problems.push(`${step}This version of the app doesn't know the change "${(change as { type?: unknown }).type}".`);
 		}
 	});
 	if (problems.length > 0) return { ok: false, problems };
 	const after = [...droppedStartedProblems(before, units, "dropped or merged"), ...unitListProblems(units)];
 	return after.length > 0 ? { ok: false, problems: after } : { ok: true, units };
+}
+
+/** One change as propose_course_changes takes it: flat, `type` picking
+ *  the fields that apply. */
+export interface CourseChangeFields {
+	type: string;
+	unit?: string;
+	units?: string[];
+	after?: string | null;
+	title?: string;
+	goal?: string;
+	prerequisites?: string[];
+}
+
+/** The changes as the course record stores them, or the problems with the
+ *  fields each type needs (in the words the model reads). */
+export function courseChangesFromFields(fields: readonly CourseChangeFields[]): { changes: CourseChange[] } | { problems: string[] } {
+	const problems: string[] = [];
+	const changes: CourseChange[] = [];
+	const text = (value: string | undefined) => value?.trim() ?? "";
+	fields.forEach((change, index) => {
+		const at = `Change ${index + 1} (${change.type})`;
+		const missing: string[] = [];
+		const needAfter = () => { if (change.after === undefined) missing.push(`"after": the id of the unit it goes after, or null for the start`); };
+		const needUnit = () => { if (!text(change.unit)) missing.push(`"unit": the unit's id`); };
+		const needText = (field: "title" | "goal") => { if (!text(change[field])) missing.push(`"${field}"`); };
+		switch (change.type) {
+			case "insert": needAfter(); needText("title"); needText("goal"); break;
+			case "drop": needUnit(); break;
+			case "move": needUnit(); needAfter(); break;
+			case "merge":
+				if ((change.units?.length ?? 0) < 2) missing.push(`"units": the ids of two or more units`);
+				needText("title"); needText("goal");
+				break;
+			default:
+				problems.push(`Change ${index + 1} has an unknown type "${change.type}": use insert, drop, move, or merge.`);
+				return;
+		}
+		if (missing.length > 0) { problems.push(`${at} needs ${missing.join(", ")}.`); return; }
+		const after = change.after === undefined || change.after === null ? null : change.after.trim();
+		switch (change.type) {
+			case "insert": changes.push({ type: "insert", after, title: text(change.title), goal: text(change.goal), prerequisites: [...new Set((change.prerequisites ?? []).map((id) => id.trim()))] }); break;
+			case "drop": changes.push({ type: "drop", unit: text(change.unit) }); break;
+			case "move": changes.push({ type: "move", unit: text(change.unit), after }); break;
+			case "merge": changes.push({ type: "merge", units: change.units!.map((id) => id.trim()), title: text(change.title), goal: text(change.goal) }); break;
+		}
+	});
+	return problems.length > 0 ? { problems } : { changes };
 }
 
 // ─── prerequisites ──────────────────────────────────────────────────────────
@@ -421,7 +475,40 @@ export function courseChangeLine(change: CourseChange, units: readonly CourseUni
 			return change.after === null ? `Move ${number(change.unit)} to the start` : `Move ${number(change.unit)} after ${number(change.after)}`;
 		case "merge":
 			return `Merge ${joinNumbers(change.units.map(number))} into: ${change.title}`;
+		default:
+			return `Unknown change: ${(change as { type?: unknown }).type}`;
 	}
+}
+
+/** Why a teacher's pending proposal was set aside by its next one. */
+export const REPLACED_PROPOSAL_REASON = "Replaced by a later proposal from this unit.";
+
+/** The revision id a teacher proposal's decision records. */
+export function proposalRevisionId(proposalId: string): string {
+	return `revision:${proposalId}`;
+}
+
+/**
+ * A proposal's change lines. A decided proposal keeps the lines its
+ * revision event recorded, numbered against the units it was decided on
+ * (an accepted drop's unit no longer exists); a pending or outdated one is
+ * numbered against the current units.
+ */
+export function proposalChangeLines(course: Pick<CourseRecord, "units" | "evidence">, proposal: CourseProposal): string[] {
+	if (proposal.status === "accepted" || proposal.status === "rejected") {
+		const revision = course.evidence.find((event): event is RevisionEvidence => event.type === "revision" && event.proposalId === proposal.id);
+		if (revision) return revision.changes;
+	}
+	return proposal.changes.map((change) => courseChangeLine(change, course.units));
+}
+
+/** A proposal as the chat and overview cards show it. */
+export function proposalView(course: Pick<CourseRecord, "units" | "evidence">, proposal: CourseProposal): ProposalView {
+	return {
+		id: proposal.id, status: proposal.status, reason: proposal.reason,
+		lines: proposalChangeLines(course, proposal),
+		...(proposal.outdatedReason ? { outdatedReason: proposal.outdatedReason } : {}),
+	};
 }
 
 function cell(text: string): string {
@@ -703,7 +790,7 @@ export function unitCourseContext(course: CourseRecord, unitId: string): string 
 		lines.push("", "Your course-change proposals from this unit:");
 		for (const proposal of own) {
 			const outdated = proposal.status === "outdated" && proposal.outdatedReason ? ` (${proposal.outdatedReason})` : "";
-			lines.push(`- ${PROPOSAL_WORDS[proposal.status]}${outdated}: ${proposal.reason}`, ...proposal.changes.map((change) => `  - ${courseChangeLine(change, units)}`));
+			lines.push(`- ${PROPOSAL_WORDS[proposal.status]}${outdated}: ${proposal.reason}`, ...proposalChangeLines(course, proposal).map((line) => `  - ${line}`));
 		}
 	}
 	return lines.join("\n");
@@ -718,5 +805,6 @@ export function unitSessionView(course: CourseRecord, unitId: string, chatId: st
 	return {
 		role: "unit", courseId: course.id, courseTitle: course.title, unitId: unit.id, number: index + 1, unitTitle: unit.title, status: unit.status,
 		...(unit.goalReachedAt ? { goalReachedAt: unit.goalReachedAt } : {}),
+		proposals: course.proposals.filter((proposal) => proposal.chatId === chatId).map((proposal) => proposalView(course, proposal)),
 	};
 }

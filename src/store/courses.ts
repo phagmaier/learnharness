@@ -70,11 +70,25 @@ function readableRecord(value: CourseRecord, courseId: string): boolean {
 		&& (unit.chatId === undefined || SAFE_ID.test(unit.chatId))
 		&& (unit.handoff === undefined || readableHandoff(unit.handoff)))) return false;
 	if (unitListProblems(value.units).length > 0) return false;
-	if (!value.proposals.every((proposal) => object(proposal) && typeof proposal.reason === "string"
-		&& typeof proposal.status === "string" && Array.isArray(proposal.changes)
-		&& proposal.changes.every((change) => object(change) && typeof change.type === "string"
-			&& (change.type !== "merge" || strings(change.units))))) return false;
+	if (!value.proposals.every((proposal) => object(proposal)
+		&& ["id", "chatId", "unitId", "toolCallId", "at", "reason", "status"].every((key) => typeof proposal[key] === "string")
+		&& optionalStrings(proposal, ["decidedAt", "outdatedReason"])
+		&& Array.isArray(proposal.changes) && proposal.changes.every(readableChange))) return false;
 	return value.evidence.every((event) => object(event) && typeof event.type === "string" && typeof event.id === "string" && typeof event.at === "string");
+}
+
+/** The four change shapes this build applies; a type a newer build wrote
+ *  is kept and refused when accepted. */
+function readableChange(value: unknown): boolean {
+	if (!object(value) || typeof value.type !== "string") return false;
+	const after = value.after === null || typeof value.after === "string";
+	switch (value.type) {
+		case "insert": return after && typeof value.title === "string" && typeof value.goal === "string" && strings(value.prerequisites);
+		case "drop": return typeof value.unit === "string";
+		case "move": return after && typeof value.unit === "string";
+		case "merge": return strings(value.units) && typeof value.title === "string" && typeof value.goal === "string";
+		default: return true;
+	}
 }
 
 function readableHandoff(value: unknown): boolean {

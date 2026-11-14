@@ -8,8 +8,8 @@
  * back-pointer) before the course records it, and the setup session is
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
-import type { ChatCourseLink, ChatRecord, ChatSummary, CourseEvidence, CourseRecord, CourseSummary, CourseUnit, SessionCourseView, UnitHandoff } from "../core/contracts.ts";
-import { applyUnitEdit, draftProblems, latestProposalCallId, sessionHandoffTopics, uniqueUnitId, unitCompletionOf, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
+import type { ChatCourseLink, ChatRecord, ChatSummary, CourseChange, CourseEvidence, CourseProposal, CourseRecord, CourseSummary, CourseUnit, SessionCourseView, UnitHandoff } from "../core/contracts.ts";
+import { applyCourseChanges, applyUnitEdit, courseChangeLine, draftProblems, latestProposalCallId, proposalRevisionId, REPLACED_PROPOSAL_REASON, sessionHandoffTopics, uniqueUnitId, unitCompletionOf, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
 import { sessionAnswerEvidence, sessionPracticeEvidence } from "../core/course-evidence.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
 import { modelsNotConfigured } from "../core/settings.ts";
@@ -498,17 +498,99 @@ export function recordGoalReached(courseId: string, unitId: string, chatId: stri
 
 /**
  * A unit session's per-turn course, for the agent: the course context
- * (composed fresh from the record) and the goal_reached hook. Undefined
- * outside a unit session.
+ * (composed fresh from the record), the goal_reached hook, and the
+ * propose_course_changes hook. Undefined outside a unit session.
  */
-export function unitTurnCourse(record: ChatRecord): { context: string; recordGoalReached: (summary: string, toolCallId: string) => string | null } | undefined {
+export function unitTurnCourse(record: ChatRecord): {
+	context: string;
+	recordGoalReached: (summary: string, toolCallId: string) => string | null;
+	proposeCourseChanges: (proposal: { reason: string; changes: CourseChange[] }, toolCallId: string) => ProposalOutcome;
+} | undefined {
 	const membership = unitMembership(record);
 	if (!membership || isRefusal(membership)) return undefined;
 	const { course, unit } = membership;
 	return {
 		context: unitCourseContext(course, unit.id),
 		recordGoalReached: (summary, toolCallId) => recordGoalReached(course.id, unit.id, record.id, toolCallId, summary),
+		proposeCourseChanges: (proposal, toolCallId) => recordCourseProposal(course.id, unit.id, record.id, toolCallId, proposal),
 	};
+}
+
+// ─── course revisions (item 7) ──────────────────────────────────────────────
+
+export type ProposalOutcome = { ok: true; proposalId: string } | { ok: false; problems: string[] } | { ok: false; refused: string };
+
+/**
+ * Store a unit teacher's proposal as pending, after validating it against
+ * the current course and decision 5 (refusals go back to the model). The
+ * unit's earlier pending proposal is replaced: it becomes outdated (human,
+ * 2026-11-13). toolCallId is the canonical transcript id, not the provider's
+ * raw id (which can be reused). The same call recorded twice keeps its first proposal.
+ * Leaves updatedAt alone: the units don't change until the learner accepts.
+ */
+export function recordCourseProposal(courseId: string, unitId: string, chatId: string, toolCallId: string, input: { reason: string; changes: CourseChange[] }): ProposalOutcome {
+	const refused = (problem: string): ProposalOutcome => ({ ok: false, refused: `The proposal couldn't be recorded: ${problem}` });
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return refused(course.error);
+	const unit = course.units.find((candidate) => candidate.id === unitId);
+	if (!unit || unit.chatId !== chatId) return refused("this session is no longer a unit of the course.");
+	if (unit.status === "completed") return refused("this unit is already completed.");
+	const existing = course.proposals.find((proposal) => proposal.chatId === chatId && proposal.toolCallId === toolCallId);
+	if (existing) return { ok: true, proposalId: existing.id };
+	const outcome = applyCourseChanges(course.units, input.changes);
+	if (!outcome.ok) return { ok: false, problems: outcome.problems };
+	const at = new Date().toISOString();
+	const proposal: CourseProposal = {
+		id: `proposal_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,
+		chatId, unitId, toolCallId, at, reason: input.reason, changes: input.changes, status: "pending",
+	};
+	const stored = courseStore.update(courseId, (current) => ({
+		...current,
+		proposals: [
+			...current.proposals.map((earlier) => earlier.unitId === unitId && earlier.status === "pending"
+				? { ...earlier, status: "outdated" as const, decidedAt: at, outdatedReason: REPLACED_PROPOSAL_REASON }
+				: earlier),
+			proposal,
+		],
+	}), { touch: false });
+	return stored ? { ok: true, proposalId: proposal.id } : refused("the course no longer exists.");
+}
+
+/**
+ * The learner's Accept or Reject on a pending proposal. Accepting
+ * revalidates against the current course: a proposal that no longer
+ * applies becomes outdated with the reason, and nothing changes. Each
+ * decision records a revision event, its change lines numbered against the
+ * units it was decided on. Only an accepted proposal changes the units, so
+ * only it stamps updatedAt (an open "Edit units" draft is then stale).
+ */
+export function decideCourseProposal(courseId: string, proposalId: string, decision: unknown): CourseRecord | CourseRefusal {
+	if (decision !== "accept" && decision !== "reject") return refusal(400, "The decision must be \"accept\" or \"reject\".");
+	const course = readCourse(courseId);
+	if (isRefusal(course)) return course;
+	const proposal = course.proposals.find((candidate) => candidate.id === proposalId);
+	if (!proposal) return refusal(404, "Unknown proposal");
+	if (proposal.status !== "pending") return refusal(409, "This proposal has already been decided.");
+	const at = new Date().toISOString();
+	const outcome = decision === "accept" ? applyCourseChanges(course.units, proposal.changes) : null;
+	const settle = (current: CourseRecord, patch: Partial<CourseProposal>): CourseProposal[] =>
+		current.proposals.map((candidate) => candidate.id === proposalId ? { ...candidate, ...patch, decidedAt: at } : candidate);
+	if (outcome && !outcome.ok) {
+		return courseStore.update(courseId, (current) => ({
+			...current, proposals: settle(current, { status: "outdated", outdatedReason: outcome.problems.join(" ") }),
+		}), { touch: false }) ?? refusal(404, "Unknown course");
+	}
+	const revision: CourseEvidence = {
+		type: "revision", id: proposalRevisionId(proposalId), at, source: "teacher",
+		decision: outcome ? "accepted" : "rejected", proposalId,
+		changes: proposal.changes.map((change) => courseChangeLine(change, course.units)),
+	};
+	return courseStore.update(courseId, (current) => ({
+		...current,
+		...(outcome ? { units: outcome.units } : {}),
+		proposals: settle(current, { status: outcome ? "accepted" : "rejected" }),
+		evidence: current.evidence.some((event) => event.id === revision.id) ? current.evidence : [...current.evidence, revision],
+	}), { touch: outcome !== null }) ?? refusal(404, "Unknown course");
 }
 
 // ─── evidence (item 5) ──────────────────────────────────────────────────────

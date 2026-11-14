@@ -72,6 +72,7 @@ import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon 
 import type { PlanBlockData } from "@/src/core";
 import { latestProposalCallId, unitSessionView, type CourseRecord, type SessionCourseView } from "@/src/core";
 import { CourseSetupContext } from "@/components/artifacts/course-proposal-card";
+import { CourseProposalsContext, decideProposal, type CourseProposalsState } from "@/components/course-changes-card";
 import { CourseClosedBand, courseSessionClosed, UnitBreadcrumb, UnitStartedLine } from "@/components/course-session";
 import { UnitCompletion } from "@/components/unit-completion";
 import { QuestionDock } from "@/components/question-dock";
@@ -334,6 +335,17 @@ export function Chat({
 	}, [unitCourseId, unitId, chatId]);
 	useServerEvent("courses-changed", (payload) => { if (payload.courseId === unitCourseId) void refreshUnitView(); });
 	useServerResync(() => void refreshUnitView());
+	// Item 7: the teacher's proposals in this session, decided from their cards.
+	const unitProposals = unitView?.proposals;
+	const courseProposals = useMemo<CourseProposalsState | null>(() => unitCourseId && unitId && unitProposals ? {
+		proposals: unitProposals,
+		decide: async (proposalId, decision) => {
+			const result = await decideProposal(unitCourseId, proposalId, decision);
+			if ("error" in result) return result.error;
+			setCourseView(unitSessionView(result.course, unitId, chatId) ?? undefined);
+			return null;
+		},
+	} : null, [unitCourseId, unitId, unitProposals, chatId]);
 
 	const controller = useOptionalInteractionLayers();
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -1639,6 +1651,7 @@ export function Chat({
 			}}
 		>
 		<CourseSetupContext.Provider value={courseSetup}>
+		<CourseProposalsContext.Provider value={courseProposals}>
 		<SessionMermaidContext.Provider
 			value={{
 				openMermaid: setMermaidFocus,
@@ -2289,6 +2302,7 @@ export function Chat({
 				// the learner sends it themselves.
 			}}
 		/>
+		</CourseProposalsContext.Provider>
 		</CourseSetupContext.Provider>
 		</ChatActionsContext.Provider>
 	);

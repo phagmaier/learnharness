@@ -709,6 +709,11 @@ export async function handleChatInput(
 		restoreAutomatic: (automaticIds, retainedIds) => restoreUncommittedAutomatic(chatId, constructed, automaticIds, retainedIds),
 	});
 	let pendingSideBudgetError: Error | undefined;
+	// The wire boundary publishes each executing call's canonical id before
+	// its tool body runs. A provider can reuse the same raw id later in this
+	// turn, so the latest execution replaces that raw id's mapping.
+	const toolCallIds = new Map<string, string>();
+	const turnCourse = unitCourse;
 	const agentOpts: AgentBuildOptions = {
 		pluginContributions,
 		engine,
@@ -762,8 +767,12 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
-		// Fork plan 04: a unit session's course section and goal_reached hook.
-		...(unitCourse ? { course: unitCourse } : {}),
+		// Fork plan 04: proposals use the canonical call identity for retry
+		// deduplication, matching the streamed and persisted transcript.
+		...(turnCourse ? { course: {
+			...turnCourse,
+			proposeCourseChanges: (proposal, toolCallId) => turnCourse.proposeCourseChanges(proposal, toolCallIds.get(toolCallId) ?? toolCallId),
+		} } : {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -885,6 +894,7 @@ export async function handleChatInput(
 			// turn's calls at the wire boundary, on the wire, in the record,
 			// and in the next turn's context alike.
 			usedToolCallIds: new Set(collectToolCallIds(merged)),
+			onToolCallId: (rawId, canonicalId) => { toolCallIds.set(rawId, canonicalId); },
 			// Stream-level failures are provider/transport internals — masked,
 			// like the SDK defaults. Tool-input validation messages never
 			// route through here: they ride the error-result path and reach the

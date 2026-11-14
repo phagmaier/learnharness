@@ -7,7 +7,7 @@ import { PATHS } from "../../config.ts";
 import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import { PROBER_UNIT_DOCTRINE, SETUP_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "./course-prompts.ts";
-import { goalReachedTool } from "./tools/course.ts";
+import { goalReachedTool, proposeCourseChangesTool, type RecordCourseProposal } from "./tools/course.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
@@ -65,7 +65,7 @@ export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	...QUESTION_TOOLS, ...TOGGLEABLE_TOOLS, "probe_done", "read", "ls", "find", "grep",
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
 	// Fork plan 04: the course tools.
-	"propose_course", "goal_reached",
+	"propose_course", "goal_reached", "propose_course_changes",
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -178,10 +178,13 @@ export interface AgentBuildOptions {
 	 *  the server. The prober and teacher append their unit doctrine and
 	 *  `context` to the system prompt; the teacher also gets goal_reached,
 	 *  which records through `recordGoalReached` (null on success, else the
-	 *  refusal the model reads). Other agents ignore it. */
+	 *  refusal the model reads), and propose_course_changes, which stores a
+	 *  pending proposal through `proposeCourseChanges`. Other agents ignore
+	 *  it. */
 	course?: {
 		context: string;
 		recordGoalReached?: (summary: string, toolCallId: string) => string | null;
+		proposeCourseChanges?: RecordCourseProposal;
 	};
 }
 
@@ -406,10 +409,13 @@ export function createTeacherAgent(
 	opts: AgentBuildOptions = {},
 ) {
 	const record = opts.course?.recordGoalReached;
-	// Fork plan 04: a unit's teacher signals the goal with goal_reached.
+	const propose = opts.course?.proposeCourseChanges;
+	// Fork plan 04: a unit's teacher signals the goal with goal_reached and
+	// proposes course revisions with propose_course_changes.
 	const tools = opts.tools ?? {
 		...(ctx ? createTeacherTools(ctx, opts.toolToggles) : bareQuestionTools()),
 		...(record ? healToolRecord({ goal_reached: goalReachedTool(record) }) : {}),
+		...(propose ? healToolRecord({ propose_course_changes: proposeCourseChangesTool(propose) }) : {}),
 	};
 	return baseAgentOptions("teacher", opts, Object.values(tools), ctx
 		? nodeId => ctx.chatStore.getChat(ctx.chatId)?.tree?.nodes.some(node => node.id === nodeId) ?? false

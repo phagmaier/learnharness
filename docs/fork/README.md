@@ -128,7 +128,7 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Agent-selected implementation:* retain pending plugin occurrences in call-id buckets and match results with the existing occurrence validator, preserving native questions' newest-call pairing. Read plan results only within the originating assistant's batch when assigning question titles. Event fields, id formats, storage versions and dependencies stay unchanged.
 
-*Agent-selected, plan 04 item 6 (completing, handoffs, reopening; awaiting the human's checkpoint review of the look and wording):*
+*Agent-selected, plan 04 item 6 (completing, handoffs, reopening; the human reviewed and finished the item, commit `7020fbd`, 2026-11-13):*
 - **Role:** `handoffWriter` joins the model roles (Strong slot, schema-level override `agent.models.handoffWriter`, no Settings row), like `noteWriter`.
 - **No Strong model at completion:** the unit still completes; the computed topics are stored and the writer fails at once with the usual "No model configured" message, so "Try again" applies once a model is set.
 - **Writer identity:** a writer belongs to the handoff it started for (its `writtenAt`), so a late result after a reopen and a new completion is dropped. Results, failures, interruption and Try again leave the course's `updatedAt` alone, as evidence writes do.
@@ -139,6 +139,23 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 *Human, 2026-11-13, item 6 review follow-up:* fix both worker-startup findings. A handoff engine that cannot be built still leaves the unit completed with its computed topics and a failed writer that can be retried. An exception starting the optional note returns completion success with `noteError`, so the export and next-unit offer remain available.
 
 *Agent-selected implementation:* handle engine-construction errors inside the completion service, and catch optional-note exceptions after saving completion. Course persistence failures still propagate. No storage-format, dependency, or UI wording changes.
+
+*Human, 2026-11-13, plan 04 item 7:* when a unit's teacher proposes course changes again while its earlier proposal is still pending, the new proposal replaces the old one. The old one becomes "Outdated" with "Replaced by a later proposal from this unit.", as `propose_course` replaces earlier proposals in setup.
+
+*Agent-selected, plan 04 item 7 (course revisions):*
+- **Tool shape:** each change is one flat object (`type` plus the fields that apply), checked per type, so every provider's schema handling reads it. A refusal that isn't a broken rule (the unit is completed, or the session no longer holds it) reads as a plain refusal, like `goal_reached`'s.
+- **Ids:** proposals are `proposal_<time>_<random>`, and a decision's revision event is `revision:<proposalId>`, as the golden record already used. The same tool call recorded twice keeps its first proposal.
+- **Outdated:** an Accept that no longer applies stores the broken rules as the reason and records no revision event, since nothing was revised and the event's decision is accepted or rejected. Reject doesn't revalidate. A replaced proposal records no event either.
+- **`updatedAt`:** only an accepted proposal stamps it, because its units change and an open "Edit units" draft must become stale. Proposing, rejecting and outdating leave it alone, as evidence writes do.
+- **Change lines:** a decided proposal shows the lines its revision event recorded, numbered against the units it was decided on. Pending and outdated ones are numbered against the current units. The unit's course context uses the same lines, so an accepted drop no longer reads `Drop "<id>": <id>`.
+- **Store:** reads check each proposal's fields and the four change shapes. A change type this build doesn't know is kept, shows as "Unknown change: <type>", and an Accept finds it outdated.
+- **Overview:** "Pending course changes" sits between the goal and the units. A proposal decided in that view stays, showing how it ended, until the page is left.
+- **Chat:** the card at the tool call reads its proposal live from the course, by the id in the call's result. A session no longer in its course shows the call's own input, read-only.
+- **Wording the plan didn't specify:** "Accepting…" and "Rejecting…" while deciding; the live activity "Proposing course changes…"; an outdated card's reason below its lines; the model's field descriptions; the refusals "The proposal couldn't be recorded: …", "This proposal has already been decided." and 'The decision must be "accept" or "reject".'; and missing-field problems such as `Change 1 (move) needs "after": the id of the unit it goes after, or null for the start.`
+
+*Human, 2026-11-13, item 7 review follow-up:* fix distinct course proposals being mistaken for retries when a provider reuses a tool-call id. Preserve the approved replacement behavior and idempotency for the same call.
+
+*Agent-selected implementation:* the existing wire boundary publishes an executing call's canonical id before the tool body runs. The turn handler gives that id to the proposal recorder, matching the streamed and saved transcript even when raw provider ids repeat within or between turns. Record fields, versions, dependencies and wording stay unchanged.
 
 ## Feature designs
 

@@ -1,9 +1,9 @@
 import { Type, type Static } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { invalidInputResult, serverExecute } from "../tool-execute.ts";
-import { unitListProblems } from "../../core/course.ts";
-import type { CourseUnit } from "../../core/contracts.ts";
-import { GOAL_REACHED_DESCRIPTION, PROPOSE_COURSE_DESCRIPTION } from "../course-prompts.ts";
+import { courseChangesFromFields, unitListProblems } from "../../core/course.ts";
+import type { CourseChange, CourseUnit } from "../../core/contracts.ts";
+import { GOAL_REACHED_DESCRIPTION, PROPOSE_COURSE_CHANGES_DESCRIPTION, PROPOSE_COURSE_DESCRIPTION } from "../course-prompts.ts";
 
 /**
  * propose_course (fork plan 04): the setup agent's seam tool. Server-side
@@ -90,6 +90,62 @@ export function goalReachedTool(record: (summary: string, toolCallId: string) =>
 			const refused = record(summary, toolCallId);
 			if (refused) return { content: [{ type: "text", text: refused }], isError: true, details: { ok: false, error: refused } };
 			return { content: [{ type: "text", text: GOAL_REACHED_ACK_TEXT }], details: { ok: true } };
+		},
+	};
+}
+
+// ─── propose_course_changes (item 7) ────────────────────────────────────────
+
+/** One change, flat so every provider's schema handling reads it: `type`
+ *  picks the fields that apply, checked per type in execute. */
+const courseChangeInput = Type.Object({
+	type: Type.Union([Type.Literal("insert"), Type.Literal("drop"), Type.Literal("move"), Type.Literal("merge")], {
+		description: "insert: a new unit (after, title, goal, prerequisites). drop: remove a unit (unit). move: put a unit elsewhere (unit, after). merge: join units into one (units, title, goal).",
+	}),
+	unit: Type.Optional(Type.String({ description: "drop, move: the unit's id from the course context." })),
+	units: Type.Optional(Type.Array(Type.String(), { description: "merge: the ids of the two or more units to merge." })),
+	after: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: "insert, move: the id of the unit it goes after, or null for the start of the course." })),
+	title: Type.Optional(Type.String({ description: "insert, merge: the new unit's short title." })),
+	goal: Type.Optional(Type.String({ description: "insert, merge: the new unit's goal in one or two sentences." })),
+	prerequisites: Type.Optional(Type.Array(Type.String(), { description: "insert: ids of earlier units the new unit builds on directly; [] for none." })),
+});
+
+export const proposeCourseChangesInput = Type.Object({
+	reason: Type.String({ minLength: 1, description: "Why the course should change: what this unit showed, in one or two sentences." }),
+	changes: Type.Array(courseChangeInput, { minItems: 1, description: "The changes, applied in order. Name units by the ids in the course context." }),
+});
+
+export type ProposeCourseChangesInput = Static<typeof proposeCourseChangesInput>;
+
+/** The result the model reads once the proposal is stored. */
+export const PROPOSE_COURSE_CHANGES_ACK_TEXT = "The learner sees the proposal and decides.";
+
+/** What the server's hook answers: the stored proposal's id, the rules
+ *  the changes break (for the model to fix), or why nothing can be
+ *  recorded. */
+export type RecordCourseProposal = (proposal: { reason: string; changes: CourseChange[] }, toolCallId: string) =>
+	| { ok: true; proposalId: string }
+	| { ok: false; problems: string[] }
+	| { ok: false; refused: string };
+
+/** The unit teacher's course-change proposal: validated against the
+ *  current course and decision 5 by the server's hook, stored as pending
+ *  for the learner's card; non-terminating. */
+export function proposeCourseChangesTool(record: RecordCourseProposal): AgentTool<typeof proposeCourseChangesInput> {
+	return {
+		name: "propose_course_changes",
+		label: "propose_course_changes",
+		description: PROPOSE_COURSE_CHANGES_DESCRIPTION,
+		parameters: proposeCourseChangesInput,
+		execute: async (toolCallId, input) => {
+			const reason = input.reason.replace(/\s+/g, " ").trim();
+			const parsed = courseChangesFromFields(input.changes);
+			const problems = [...(reason ? [] : ["The reason must be non-empty."]), ...("problems" in parsed ? parsed.problems : [])];
+			if (problems.length > 0 || "problems" in parsed) return invalidInputResult("propose_course_changes", problems);
+			const stored = record({ reason, changes: parsed.changes }, toolCallId);
+			if ("refused" in stored) return { content: [{ type: "text", text: stored.refused }], isError: true, details: { ok: false, error: stored.refused } };
+			if (!stored.ok) return invalidInputResult("propose_course_changes", stored.problems);
+			return { content: [{ type: "text", text: PROPOSE_COURSE_CHANGES_ACK_TEXT }], details: { ok: true, proposalId: stored.proposalId } };
 		},
 	};
 }

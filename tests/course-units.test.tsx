@@ -386,7 +386,7 @@ describe("the unit's course section", () => {
 		assert.ok(prober.includes(JSON.stringify(PROBER_UNIT_DOCTRINE).slice(1, -1)), "the prober's unit doctrine");
 		assert.ok(!prober.includes("# Teaching one unit of a course"));
 		assert.ok(prober.includes(JSON.stringify(core.unitCourseContext(courseStore.get(course.id)!, "eigen")).slice(1, -1)));
-		assert.ok(!prober.includes('"goal_reached"'), "the prober has no goal_reached");
+		assert.ok(!prober.includes('"goal_reached"') && !prober.includes('"propose_course_changes"'), "the prober has neither unit-teacher tool");
 
 		concludeProbe(chatId);
 		assert.equal((await runTurn(chatId, { type: "text", text: "Ready." }, factory(chatId, engine))).status, 200);
@@ -416,7 +416,7 @@ describe("the unit's course section", () => {
 		assert.deepEqual(seen.map((opts) => [opts.agentKind, opts.course]), [["prober", undefined], ["teacher", undefined]]);
 		for (const context of contexts) {
 			const system = systemOf(context);
-			assert.ok(!system.includes("# Course context") && !system.includes("one unit of a course") && !system.includes('"goal_reached"'));
+			assert.ok(!system.includes("# Course context") && !system.includes("one unit of a course") && !system.includes('"goal_reached"') && !system.includes('"propose_course_changes"'));
 		}
 	});
 
@@ -546,7 +546,7 @@ describe("the prerequisite warning", () => {
 // ─── the unit's chrome ──────────────────────────────────────────────────────
 
 describe("the unit session's chrome", () => {
-	const view = { role: "unit" as const, courseId: "course_x", courseTitle: "Linear algebra", unitId: "maps", number: 2, unitTitle: "Linear maps", status: "in-progress" as const };
+	const view = { role: "unit" as const, courseId: "course_x", courseTitle: "Linear algebra", unitId: "maps", number: 2, unitTitle: "Linear maps", status: "in-progress" as const, proposals: [] };
 
 	it("the top bar reads course › n. unit and links to the overview", () => {
 		const html = renderToStaticMarkup(<UnitBreadcrumb view={view} />);

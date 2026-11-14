@@ -204,6 +204,17 @@ export interface CourseSummary {
 	units: Array<{ id: string; title: string; status: UnitStatus; chatId?: string }>;
 }
 
+/** A course-change proposal as the cards show it (item 7): its change
+ *  lines are numbered against the units it was decided on, or against the
+ *  current units while it is pending. */
+export interface ProposalView {
+	id: string;
+	status: ProposalStatus;
+	reason: string;
+	lines: string[];
+	outdatedReason?: string;
+}
+
 /** What a course session's page knows about its course (fork plan 04). */
 export type SessionCourseView =
 	| {
@@ -221,4 +232,6 @@ export type SessionCourseView =
 		unitTitle: string;
 		status: UnitStatus;
 		goalReachedAt?: string;
+		/** This session's course-change proposals, oldest first (item 7). */
+		proposals: ProposalView[];
 	};

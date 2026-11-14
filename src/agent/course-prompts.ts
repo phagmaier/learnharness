@@ -7,6 +7,8 @@
  *   base and before the shared fragments (no prober doctrine).
  * - PROBER_UNIT_DOCTRINE / TEACHER_UNIT_DOCTRINE: appended, with the
  *   course context, to a unit session's prober or teacher prompt each turn.
+ * - The tool descriptions: propose_course (setup), goal_reached and
+ *   propose_course_changes (a unit's teacher).
  */
 
 export const SETUP_DOCTRINE = `# Course setup
@@ -46,3 +48,6 @@ If the unit showed that the course plan should change (a missing unit, a unit he
 
 export const GOAL_REACHED_DESCRIPTION =
 	"Record that this unit's goal is reached. The learner can then complete the unit. Nothing closes; the conversation continues.";
+
+export const PROPOSE_COURSE_CHANGES_DESCRIPTION =
+	"Propose changes to the course's unit list, at the end of a unit: insert, drop, move, or merge units, with your reason. The learner accepts or rejects them. Started units can't be dropped or merged.";

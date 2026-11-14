@@ -173,6 +173,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
 	// Fork plan 04.
 	propose_course: "Proposing the course…",
 	goal_reached: "Recording the goal…",
+	propose_course_changes: "Proposing course changes…",
 };
 
 /** The activity label for ONE running tool (owner, streaming round

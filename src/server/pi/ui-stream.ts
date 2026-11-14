@@ -100,6 +100,9 @@ export interface PiTurnSpec {
 	 *  routing, and the next turn's provider context all agree. Absent →
 	 *  verbatim passthrough (the protocol law below still holds). */
 	usedToolCallIds?: ReadonlySet<string>;
+	/** Publish the executing call's raw and canonical ids before its tool
+	 *  body runs, so durable tool side effects use the transcript's identity. */
+	onToolCallId?: (rawId: string, canonicalId: string) => void;
 	/** The coalescing window for update fan-out (COMPACTION LAW above).
 	 *  Defaults to 100ms; tests tighten it. */
 	updateFlushMs?: number;
@@ -252,6 +255,9 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 		// THE LACAN FIX: ids uniquify HERE, before any view — the one seam
 		// every consumer downstream shares. No uniquifier → verbatim.
 		const mapped = uniquifier ? uniquifier.event(event) : event;
+		if (event.type === "tool_execution_start" && mapped.type === "tool_execution_start") {
+			spec.onToolCallId?.(event.toolCallId, mapped.toolCallId);
+		}
 		const uniqued = questions ? questions.wire(event, mapped) : mapped;
 		// WIRE DIET: slim the one event pi double-stuffs — our views read
 		// `message`, never `assistantMessageEvent` (same full partial twice).

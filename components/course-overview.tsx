@@ -9,6 +9,7 @@ import {
 	courseProgressLine,
 	draftProblems,
 	prerequisiteWarning,
+	proposalView,
 	unitDraftsFromRows,
 	type CourseRecord,
 	type CourseUnit,
@@ -20,15 +21,17 @@ import { Button } from "@/components/ui/button";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { HostDialog } from "@/components/host-dialog";
 import { HandoffDisclosure } from "@/components/course-handoff";
+import { CourseChangesCard, decideProposal, type ProposalDecision } from "@/components/course-changes-card";
 import { cn } from "@/lib/utils";
 
 /**
  * The course overview (fork plan 04 item 3): the goal, pending course
- * changes, and the unit list with each unit's status, prerequisites, goal,
- * starting point and actions. A completed unit adds "Reopen unit" and its
- * handoff disclosure (item 6). "Edit units" turns the list into the setup
- * card's editor, where started units can't be removed. The title renames
- * on click. Open views refetch on courses-changed.
+ * changes (item 7: the teachers' proposals, with Accept and Reject), and
+ * the unit list with each unit's status, prerequisites, goal, starting
+ * point and actions. A completed unit adds "Reopen unit" and its handoff
+ * disclosure (item 6). "Edit units" turns the list into the setup card's
+ * editor, where started units can't be removed. The title renames on
+ * click. Open views refetch on courses-changed.
  */
 
 export const UNIT_STATUS_LABEL: Record<CourseUnit["status"], string> = {
@@ -145,6 +148,9 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 	const [reopening, setReopening] = useState<string | null>(null);
 	const [retrying, setRetrying] = useState<string | null>(null);
 	const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
+	// Proposals decided in this view stay, showing how they ended (an
+	// accept can find a proposal outdated), until the page is left.
+	const [decidedHere, setDecidedHere] = useState<ReadonlySet<string>>(() => new Set());
 	const titleRef = useRef<HTMLInputElement>(null);
 	const courseId = course.id;
 
@@ -253,6 +259,15 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 		}
 	};
 
+	const decide = async (proposalId: string, decision: ProposalDecision): Promise<string | null> => {
+		const result = await decideProposal(courseId, proposalId, decision);
+		if ("error" in result) return result.error;
+		setDecidedHere((current) => new Set([...current, proposalId]));
+		setCourse(result.course);
+		return null;
+	};
+	const shownProposals = course.proposals.filter((proposal) => proposal.status === "pending" || decidedHere.has(proposal.id));
+
 	const localProblems = editRows ? draftProblems({ title: course.title, goal: course.goal, units: editRows }) : [];
 
 	return (
@@ -295,6 +310,16 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 							<h2 className="mb-1 font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Goal</h2>
 							<p data-testid="course-goal" className="font-prose text-(length:--lh-prose-size)">{course.goal}</p>
 						</section>
+						{shownProposals.length > 0 && (
+							<section className="mt-8" data-testid="course-pending-changes">
+								<h2 className="mb-2 font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Pending course changes</h2>
+								<div className="space-y-2">
+									{shownProposals.map((proposal) => (
+										<CourseChangesCard key={proposal.id} proposal={proposalView(course, proposal)} onDecide={(decision) => decide(proposal.id, decision)} />
+									))}
+								</div>
+							</section>
+						)}
 						<section className="mt-8">
 							<div className="mb-2 flex items-center gap-2">
 								<h2 className="font-ui text-[11px] uppercase tracking-wider text-muted-foreground">Units</h2>
