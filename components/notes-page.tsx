@@ -103,6 +103,47 @@ export function NoteListRow({ note, selected, onSelect }: { note: NoteView; sele
 	);
 }
 
+/** The instruction box and its Interactive checkbox, without buttons (the
+ *  notes page's form, and the completion dialog's "Generate a note"). */
+export function NoteRequestFields({
+	instruction,
+	interactive,
+	disabled = false,
+	onInstruction,
+	onInteractive,
+}: {
+	instruction: string;
+	interactive: boolean;
+	disabled?: boolean;
+	onInstruction: (value: string) => void;
+	onInteractive: (value: boolean) => void;
+}) {
+	return (
+		<>
+			<textarea
+				data-testid="note-instruction"
+				value={instruction}
+				disabled={disabled}
+				onChange={(event) => onInstruction(event.target.value)}
+				placeholder={NEW_NOTE_PLACEHOLDER}
+				rows={3}
+				className="lh-input w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-muted-foreground"
+			/>
+			<label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+				<input
+					type="checkbox"
+					data-testid="note-interactive"
+					checked={interactive}
+					disabled={disabled}
+					onChange={(event) => onInteractive(event.target.checked)}
+					className="size-3.5 accent-primary"
+				/>
+				{INTERACTIVE_LABEL}
+			</label>
+		</>
+	);
+}
+
 /** The instruction box with its Interactive checkbox (new notes and Regenerate…). */
 export function NoteRequestForm({
 	instruction,
@@ -134,24 +175,7 @@ export function NoteRequestForm({
 				if (!busy) onSubmit();
 			}}
 		>
-			<textarea
-				data-testid="note-instruction"
-				value={instruction}
-				onChange={(event) => onInstruction(event.target.value)}
-				placeholder={NEW_NOTE_PLACEHOLDER}
-				rows={3}
-				className="lh-input w-full resize-y rounded-lg border border-border bg-background px-2.5 py-2 text-sm outline-none focus:border-muted-foreground"
-			/>
-			<label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-				<input
-					type="checkbox"
-					data-testid="note-interactive"
-					checked={interactive}
-					onChange={(event) => onInteractive(event.target.checked)}
-					className="size-3.5 accent-primary"
-				/>
-				{INTERACTIVE_LABEL}
-			</label>
+			<NoteRequestFields instruction={instruction} interactive={interactive} onInstruction={onInstruction} onInteractive={onInteractive} />
 			{error && <p role="alert" className="text-xs text-error">{error}</p>}
 			<div className="flex gap-2">
 				<button

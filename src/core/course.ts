@@ -12,12 +12,15 @@
 import type {
 	AnswerEvidence,
 	CourseChange,
+	CourseEvidence,
 	CourseRecord,
 	CourseUnit,
 	HandoffTopic,
 	SessionCourseView,
+	UnitCompletion,
 	UnitHandoff,
 } from "./contracts/course.ts";
+import { derivePlanStatusesLh, type PlanTree } from "./contracts/plan.ts";
 import type { LhMessage } from "./native-messages.ts";
 
 // ─── names and numbers ──────────────────────────────────────────────────────
@@ -314,24 +317,35 @@ function judgedFrom(topicReason: string | undefined): string {
 
 // ─── texts ──────────────────────────────────────────────────────────────────
 
-/** The handoff as later units' agents receive it and the overview shows it. */
-export function handoffText(number: number, unit: Pick<CourseUnit, "title" | "completedAt">, handoff: UnitHandoff): string {
-	const date = courseDate(unit.completedAt ?? handoff.writtenAt);
-	const lines = [`Unit ${number} · ${unit.title}: completed ${date}${handoff.completion === "early" ? " (early: before the teacher marked the goal reached)" : ""}`];
-	const section = (heading: string, items: string[]) => {
-		if (items.length === 0) return;
-		lines.push(heading, ...items.map((item) => `- ${item}`));
+/** "completed 20 Nov 2026 (early: …)": when the unit completed, and how. */
+export function handoffCompletionLine(unit: Pick<CourseUnit, "completedAt">, handoff: Pick<UnitHandoff, "writtenAt" | "completion">): string {
+	return `completed ${courseDate(unit.completedAt ?? handoff.writtenAt)}${handoff.completion === "early" ? " (early: before the teacher marked the goal reached)" : ""}`;
+}
+
+/** One headed list of a handoff ("Solid:", "Shaky:", …). */
+export interface HandoffSection {
+	/** Stable key for renderers: solid, shaky, unchecked, not-reached, observations. */
+	key: HandoffTopic["status"] | "observations";
+	heading: string;
+	items: string[];
+}
+
+/** The handoff's lists in reading order, empty ones left out. The
+ *  model-written observations appear only once the writer has finished. */
+export function handoffSections(handoff: UnitHandoff): HandoffSection[] {
+	const sections: HandoffSection[] = [];
+	const section = (key: HandoffSection["key"], heading: string, items: string[]) => {
+		if (items.length > 0) sections.push({ key, heading, items });
 	};
 	const of = (status: HandoffTopic["status"]) => handoff.topics.filter((entry) => entry.status === status);
-	if (handoff.topics.length === 0) lines.push("No plan topics were recorded.");
-	section("Solid:", of("solid").map((entry) => `${entry.title}: ${entry.reason}`));
-	section("Shaky:", of("shaky").map((entry) => `${entry.title}: ${entry.reason}`));
-	section("Not checked by a graded question:", of("unchecked").map((entry) => entry.title));
-	section("Not reached (carried forward):", of("not-reached").map((entry) => entry.title));
+	section("solid", "Solid:", of("solid").map((entry) => `${entry.title}: ${entry.reason}`));
+	section("shaky", "Shaky:", of("shaky").map((entry) => `${entry.title}: ${entry.reason}`));
+	section("unchecked", "Not checked by a graded question:", of("unchecked").map((entry) => entry.title));
+	section("not-reached", "Not reached (carried forward):", of("not-reached").map((entry) => entry.title));
 	const observations = handoff.writer.status === "ready" ? handoff.observations : undefined;
 	if (observations) {
 		const byNode = new Map(handoff.topics.map((entry) => [entry.nodeId, entry]));
-		section("Teacher observations (model-written):", [
+		section("observations", "Teacher observations (model-written):", [
 			...observations.judged.map((judgment) => {
 				const judgedTopic = byNode.get(judgment.nodeId);
 				return `${judgedTopic?.title ?? judgment.nodeId} looks ${judgment.status}: ${judgment.reason} (judged from ${judgedFrom(judgedTopic?.reason)})`;
@@ -341,7 +355,50 @@ export function handoffText(number: number, unit: Pick<CourseUnit, "title" | "co
 			...observations.carriedForward.map((line) => `Carry forward: ${line}`),
 		]);
 	}
+	return sections;
+}
+
+/** Shown in place of the lists when the unit recorded no plan. */
+export const NO_HANDOFF_TOPICS = "No plan topics were recorded.";
+
+/** The handoff as later units' agents receive it and the overview shows it. */
+export function handoffText(number: number, unit: Pick<CourseUnit, "title" | "completedAt">, handoff: UnitHandoff): string {
+	const lines = [`Unit ${number} · ${unit.title}: ${handoffCompletionLine(unit, handoff)}`];
+	if (handoff.topics.length === 0) lines.push(NO_HANDOFF_TOPICS);
+	for (const section of handoffSections(handoff)) lines.push(section.heading, ...section.items.map((item) => `- ${item}`));
 	return lines.join("\n");
+}
+
+/**
+ * The computed part of a unit's handoff (decision 2), from its session:
+ * the session's plan nodes, each reached once a teaching question has been
+ * about it, rated from the course's answer evidence for that session.
+ */
+export function sessionHandoffTopics(
+	session: { id: string; tree?: PlanTree; messages: readonly LhMessage[] },
+	unitId: string,
+	evidence: readonly CourseEvidence[],
+): HandoffTopic[] {
+	const tree = session.tree;
+	if (!tree || tree.nodes.length === 0) return [];
+	const statuses = derivePlanStatusesLh(tree, session.messages);
+	const reached = new Set(statuses.visited);
+	if (statuses.current) reached.add(statuses.current);
+	const answers = evidence.filter((event): event is AnswerEvidence => event.type === "answer" && event.chatId === session.id && event.unitId === unitId);
+	return handoffTopics(tree.nodes, reached, answers);
+}
+
+/** How a completion is recorded: confirmed after the teacher's goal_reached
+ *  signal, early before it. */
+export function unitCompletionOf(unit: Pick<CourseUnit, "goalReachedAt">): UnitCompletion {
+	return unit.goalReachedAt ? "confirmed" : "early";
+}
+
+/** "Open next unit" after a completion: the first unit in order that
+ *  hasn't started, or null when every unit has. */
+export function nextUnitOffer(units: readonly CourseUnit[]): { unit: CourseUnit; number: number } | null {
+	const index = units.findIndex((unit) => unit.status === "not-started");
+	return index === -1 ? null : { unit: units[index]!, number: index + 1 };
 }
 
 function joinNumbers(numbers: string[]): string {

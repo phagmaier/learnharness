@@ -73,6 +73,7 @@ import type { PlanBlockData } from "@/src/core";
 import { latestProposalCallId, unitSessionView, type CourseRecord, type SessionCourseView } from "@/src/core";
 import { CourseSetupContext } from "@/components/artifacts/course-proposal-card";
 import { CourseClosedBand, courseSessionClosed, UnitBreadcrumb, UnitStartedLine } from "@/components/course-session";
+import { UnitCompletion } from "@/components/unit-completion";
 import { QuestionDock } from "@/components/question-dock";
 import { PluginQuestionDock } from "./plugin-question-dock";
 import { PluginQuestionPart } from "./plugin-question-part";
@@ -1738,6 +1739,9 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
+					{/* Fork plan 04 item 6: the unit's "Unit" menu, or "Complete unit"
+					    once the teacher has marked the goal reached. */}
+					{unitView && <UnitCompletion view={unitView} chatId={chatId} />}
 					{/* The plan chip (owner, plan-placement round): session-level
 					    structure beside the phase chip — access to the full-DAG popup
 					    at every width; the marginalia is the wide-screen glance view. */}

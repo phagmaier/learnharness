@@ -60,6 +60,9 @@ export const BACKGROUND_MODEL_ROLES = [
 	// like sideQuestion, is listed for the schema-level override only
 	// (agent.models.noteWriter); Settings shows no per-role row.
 	"noteWriter",
+	// Courses (fork plan 04): the handoff writer, likewise Strong-slot and
+	// schema-level only (agent.models.handoffWriter).
+	"handoffWriter",
 ] as const;
 
 export type BackgroundModelRole = (typeof BACKGROUND_MODEL_ROLES)[number];
@@ -338,6 +341,7 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	pdfReader: "vision",
 	sideQuestion: "strong", // the conversation chain, like prober/teacher (resolveSideQuestionSpec)
 	noteWriter: "strong", // fork plan 03: notes are written by the teaching tier
+	handoffWriter: "strong", // fork plan 04: unit handoffs, likewise
 };
 
 /** General settings — app-level behavior. Version DISPLAY and plans login

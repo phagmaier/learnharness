@@ -19,12 +19,14 @@ import { UnitListEditor } from "@/components/course-unit-editor";
 import { Button } from "@/components/ui/button";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import { HostDialog } from "@/components/host-dialog";
+import { HandoffDisclosure } from "@/components/course-handoff";
 import { cn } from "@/lib/utils";
 
 /**
  * The course overview (fork plan 04 item 3): the goal, pending course
  * changes, and the unit list with each unit's status, prerequisites, goal,
- * starting point and actions. "Edit units" turns the list into the setup
+ * starting point and actions. A completed unit adds "Reopen unit" and its
+ * handoff disclosure (item 6). "Edit units" turns the list into the setup
  * card's editor, where started units can't be removed. The title renames
  * on click. Open views refetch on courses-changed.
  */
@@ -69,6 +71,8 @@ export function UnitCard({
 	numberOf,
 	starting = false,
 	onStart,
+	reopening = false,
+	onReopen,
 	extra,
 }: {
 	unit: CourseUnit;
@@ -76,7 +80,10 @@ export function UnitCard({
 	numberOf: ReadonlyMap<string, number>;
 	starting?: boolean;
 	onStart?: () => void;
-	/** Later items' actions and disclosures (handoff, practice, reopen). */
+	reopening?: boolean;
+	/** "Reopen unit", for a completed unit (item 6). */
+	onReopen?: () => void;
+	/** Disclosures below the card (the handoff; later items' practice). */
 	extra?: ReactNode;
 }) {
 	const buildsOn = unit.prerequisites.map((id) => numberOf.get(id)).filter((n): n is number => n !== undefined);
@@ -110,6 +117,11 @@ export function UnitCard({
 					{unit.status !== "not-started" && unit.chatId && (
 						<Link href={`/chat/${encodeURIComponent(unit.chatId)}`} data-testid="unit-open" className={ACTION}>Open</Link>
 					)}
+					{unit.status === "completed" && onReopen && (
+						<button type="button" data-testid="unit-reopen" className={ACTION} disabled={reopening} onClick={onReopen}>
+							{reopening ? "Reopening…" : "Reopen unit"}
+						</button>
+					)}
 				</div>
 			</div>
 			{extra}
@@ -130,6 +142,9 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 	const [editProblems, setEditProblems] = useState<string[]>([]);
 	const [saving, setSaving] = useState(false);
 	const counter = useRef(0);
+	const [reopening, setReopening] = useState<string | null>(null);
+	const [retrying, setRetrying] = useState<string | null>(null);
+	const [retryErrors, setRetryErrors] = useState<Record<string, string>>({});
 	const titleRef = useRef<HTMLInputElement>(null);
 	const courseId = course.id;
 
@@ -184,6 +199,34 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 			setError("Couldn't reach the app. Try again.");
 		}
 		setStarting(null);
+	};
+
+	/** POST a unit action; the returned course replaces the local one. */
+	const unitAction = async (unit: CourseUnit, action: "reopen" | "handoff"): Promise<string | null> => {
+		try {
+			const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/units/${encodeURIComponent(unit.id)}/${action}`, { method: "POST" });
+			const body = (await response.json().catch(() => ({}))) as { course?: CourseRecord; error?: string };
+			if (body.course) { setCourse(body.course); return null; }
+			return body.error ?? "Something went wrong. Try again.";
+		} catch {
+			return "Couldn't reach the app. Try again.";
+		}
+	};
+
+	const reopen = async (unit: CourseUnit) => {
+		setReopening(unit.id);
+		setError(null);
+		const failure = await unitAction(unit, "reopen");
+		if (failure) setError(failure);
+		setReopening(null);
+	};
+
+	const retryHandoff = async (unit: CourseUnit) => {
+		setRetrying(unit.id);
+		setRetryErrors(({ [unit.id]: _old, ...rest }) => rest);
+		const failure = await unitAction(unit, "handoff");
+		if (failure) setRetryErrors((current) => ({ ...current, [unit.id]: failure }));
+		setRetrying(null);
 	};
 
 	const save = async () => {
@@ -288,6 +331,17 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 											numberOf={numberOf}
 											starting={starting === unit.id}
 											onStart={() => requestStart(unit)}
+											reopening={reopening === unit.id}
+											onReopen={() => void reopen(unit)}
+											extra={unit.status === "completed" && unit.handoff ? (
+												<HandoffDisclosure
+													unit={unit}
+													handoff={unit.handoff}
+													retrying={retrying === unit.id}
+													retryError={retryErrors[unit.id] ?? null}
+													onRetry={() => void retryHandoff(unit)}
+												/>
+											) : undefined}
 										/>
 									))}
 								</ol>

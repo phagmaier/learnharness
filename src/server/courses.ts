@@ -8,13 +8,16 @@
  * back-pointer) before the course records it, and the setup session is
  * linked after the course exists. Reads adopt what a crash left half-done.
  */
-import type { ChatCourseLink, ChatRecord, ChatSummary, CourseEvidence, CourseRecord, CourseSummary, CourseUnit, SessionCourseView } from "../core/contracts.ts";
-import { applyUnitEdit, draftProblems, latestProposalCallId, uniqueUnitId, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
+import type { ChatCourseLink, ChatRecord, ChatSummary, CourseEvidence, CourseRecord, CourseSummary, CourseUnit, SessionCourseView, UnitHandoff } from "../core/contracts.ts";
+import { applyUnitEdit, draftProblems, latestProposalCallId, sessionHandoffTopics, uniqueUnitId, unitCompletionOf, unitCourseContext, unitEditSummary, unitSessionView, type UnitDraft } from "../core/course.ts";
 import { sessionAnswerEvidence, sessionPracticeEvidence } from "../core/course-evidence.ts";
 import { newUnitStartMessage } from "../core/native-messages.ts";
+import { modelsNotConfigured } from "../core/settings.ts";
 import { applyOrganizationAction, placementOf } from "../core/source-organization.ts";
 import { courseStore, CourseUnreadableError, newCourseId } from "../store/courses.ts";
-import { stampSessionModel } from "./chats.ts";
+import { runningWorkBlocker, stampSessionModel } from "./chats.ts";
+import { handoffWriterEngine, isHandoffWriterRunning, settleInterruptedHandoffs, startHandoffWriter, stopHandoffWriter } from "./handoffs.ts";
+import { createNote } from "./notes.ts";
 import { stores } from "./stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 
@@ -32,7 +35,7 @@ function refusal(status: number, error: string, problems?: string[]): CourseRefu
 export function readCourse(courseId: string): CourseRecord | CourseRefusal {
 	try {
 		const record = courseStore.get(courseId);
-		return record ? adoptUnitSessions(record) : refusal(404, "Unknown course");
+		return record ? settleInterruptedHandoffs(adoptUnitSessions(record)) : refusal(404, "Unknown course");
 	} catch (error) {
 		if (error instanceof CourseUnreadableError) return refusal(409, error.message);
 		if (error instanceof Error && error.message.startsWith("Invalid course id")) return refusal(404, "Unknown course");
@@ -314,6 +317,138 @@ export function startUnit(courseId: string, unitId: string): { ok: true; chatId:
 		evidence: [...current.evidence, { type: "unit-started", id: `unit-started:${chat.id}`, at, unitId, chatId: chat.id }],
 	}));
 	return { ok: true, chatId: chat.id };
+}
+
+// ─── completing and reopening (item 6) ──────────────────────────────────────
+
+export const COMPLETE_WORK_RUNNING = "Wait for the running work to finish, then complete the unit.";
+
+function findUnit(course: CourseRecord, unitId: string): CourseUnit | CourseRefusal {
+	return course.units.find((candidate) => candidate.id === unitId) ?? refusal(404, "Unknown unit");
+}
+
+/** The order of this unit's lifecycle events of one type, for stable ids. */
+function lifecycleId(course: CourseRecord, type: "unit-completed" | "unit-reopened", chatId: string): string {
+	const prefix = `${type}:${chatId}:`;
+	return `${prefix}${course.evidence.filter((event) => event.id.startsWith(prefix)).length + 1}`;
+}
+
+/** The completion dialog's optional note (phase 0's request). */
+function readNoteOffer(raw: unknown): { instruction: string; interactive: boolean } | null {
+	if (!raw || typeof raw !== "object") return null;
+	const note = raw as Record<string, unknown>;
+	return { instruction: typeof note.instruction === "string" ? note.instruction : "", interactive: note.interactive === true };
+}
+
+/**
+ * Complete a unit (the learner's "Complete unit"): confirmed after the
+ * teacher's goal_reached signal, early before it. Refused while a turn or a
+ * background job runs in the unit's session, as deletion is; note writers
+ * don't block. Syncs the session's evidence, stores the handoff's computed
+ * topics at once, and starts the handoff writer (failed at once when its
+ * engine can't be built, so the computed part still lands). The
+ * optional note offer starts phase 0's note writer for the session.
+ */
+export function completeUnit(courseId: string, unitId: string, input: { note?: unknown } = {}): { ok: true; course: CourseRecord; noteError?: string } | CourseRefusal {
+	const read = readCourse(courseId);
+	if (isRefusal(read)) return read;
+	const unit = findUnit(read, unitId);
+	if (isRefusal(unit)) return unit;
+	if (unit.status === "completed") return refusal(409, "This unit is already completed.");
+	if (unit.status !== "in-progress" || !unit.chatId) return refusal(409, "This unit hasn't started yet.");
+	const chatId = unit.chatId;
+	if (runningWorkBlocker(chatId)) return refusal(409, COMPLETE_WORK_RUNNING);
+	const chat = readChat(chatId);
+	if (!chat) return refusal(409, "This unit's session can't be read.");
+
+	const synced = syncCourseEvidence(courseId, { chatId });
+	if (isRefusal(synced)) return synced;
+	let engine: ReturnType<typeof handoffWriterEngine>;
+	let writer: UnitHandoff["writer"] = { status: "failed", error: modelsNotConfigured(["strong"]).error };
+	try {
+		engine = handoffWriterEngine();
+		if (engine) writer = { status: "writing" };
+	} catch (error) {
+		// A disconnected provider can leave a saved model unavailable.
+		writer = { status: "failed", error: error instanceof Error ? error.message : String(error) };
+	}
+	const at = new Date().toISOString();
+	const completion = unitCompletionOf(unit);
+	const handoff: UnitHandoff = {
+		writtenAt: at, completion,
+		topics: sessionHandoffTopics(chat, unitId, synced.evidence),
+		writer,
+	};
+	const course = courseStore.update(courseId, (current) => ({
+		...current,
+		units: current.units.map((candidate) => candidate.id === unitId
+			? { ...candidate, status: "completed", completion, completedAt: at, handoff }
+			: candidate),
+		evidence: [...current.evidence, { type: "unit-completed", id: lifecycleId(current, "unit-completed", chatId), at, unitId, completion }],
+	}));
+	if (!course) return refusal(404, "Unknown course");
+	if (engine) startHandoffWriter(course, unitId, engine);
+
+	const note = readNoteOffer(input.note);
+	if (!note) return { ok: true, course };
+	try {
+		const created = createNote(chatId, note);
+		return created.ok ? { ok: true, course } : { ok: true, course, noteError: created.error };
+	} catch (error) {
+		// Completion is already saved; an optional note must not turn it
+		// into a failed request or prevent the conversation export.
+		return { ok: true, course, noteError: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+/**
+ * Reopen a completed unit: back to in progress, the goal signal cleared,
+ * and a unit-reopened event. The old handoff stays (later units keep
+ * reading it) until the next completion rewrites it; a writer still
+ * running is stopped first.
+ */
+export function reopenUnit(courseId: string, unitId: string): CourseRecord | CourseRefusal {
+	const read = readCourse(courseId);
+	if (isRefusal(read)) return read;
+	const unit = findUnit(read, unitId);
+	if (isRefusal(unit)) return unit;
+	if (unit.status !== "completed" || !unit.chatId) return refusal(409, "This unit isn't completed.");
+	const chatId = unit.chatId;
+	stopHandoffWriter(courseId, unitId);
+	const at = new Date().toISOString();
+	return courseStore.update(courseId, (current) => ({
+		...current,
+		units: current.units.map((candidate) => {
+			if (candidate.id !== unitId) return candidate;
+			const { goalReachedAt: _signal, completion: _completion, completedAt: _completed, ...rest } = candidate;
+			return { ...rest, status: "in-progress" };
+		}),
+		evidence: [...current.evidence, { type: "unit-reopened", id: lifecycleId(current, "unit-reopened", chatId), at, unitId }],
+	})) ?? refusal(404, "Unknown course");
+}
+
+/** "Try again" on a handoff whose writer failed, was stopped, or was
+ *  interrupted: the same handoff, written again. */
+export function retryHandoffWriter(courseId: string, unitId: string): CourseRecord | CourseRefusal {
+	const read = readCourse(courseId);
+	if (isRefusal(read)) return read;
+	const unit = findUnit(read, unitId);
+	if (isRefusal(unit)) return unit;
+	const handoff = unit.handoff;
+	if (unit.status !== "completed" || !handoff) return refusal(409, "This unit isn't completed.");
+	if (handoff.writer.status === "writing" || isHandoffWriterRunning(courseId, unitId)) return refusal(409, "The teacher observations are being written.");
+	if (handoff.writer.status === "ready") return refusal(409, "The teacher observations are already written.");
+	const engine = handoffWriterEngine();
+	if (!engine) return refusal(503, modelsNotConfigured(["strong"]).error);
+	const course = courseStore.update(courseId, (current) => ({
+		...current,
+		units: current.units.map((candidate) => candidate.id === unitId && candidate.handoff?.writtenAt === handoff.writtenAt
+			? { ...candidate, handoff: { ...candidate.handoff, writer: { status: "writing" } } }
+			: candidate),
+	}), { touch: false });
+	if (!course) return refusal(404, "Unknown course");
+	startHandoffWriter(course, unitId, engine);
+	return course;
 }
 
 // ─── session pages ──────────────────────────────────────────────────────────

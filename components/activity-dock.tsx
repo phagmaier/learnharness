@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIcon, BotIcon, FileTextIcon, NotebookPenIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
+import { ActivityIcon, BotIcon, ClipboardCheckIcon, FileTextIcon, NotebookPenIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
@@ -96,16 +96,32 @@ export interface FeedNoteWriter {
 	contextLimit: number | null;
 }
 
+/** A running handoff writer (fork plan 04): "Handoff · <unit title>". */
+export interface FeedHandoffWriter {
+	id: string;
+	courseId: string;
+	unitId: string;
+	chatId: string;
+	title: string;
+	createdAt: string;
+	activity: string;
+	usage?: FeedUsage;
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
 export interface ActivityFeed {
 	jobs: FeedJob[];
 	/** Optional for older payloads and consumers; current server always sends it. */
 	pluginWorkers?: FeedPluginWorker[];
 	/** Optional like pluginWorkers; current server always sends it. */
 	noteWriters?: FeedNoteWriter[];
+	/** Optional like noteWriters; current server always sends it. */
+	handoffWriters?: FeedHandoffWriter[];
 	extractions: FeedExtraction[];
 }
 
-const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], noteWriters: [], extractions: [] };
+const EMPTY_FEED: ActivityFeed = { jobs: [], pluginWorkers: [], noteWriters: [], handoffWriters: [], extractions: [] };
 
 // ─── The activity feed (composition root: the root layout) ───────────────────
 
@@ -142,7 +158,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 				if (res.ok) {
 					const data = (await res.json()) as Partial<ActivityFeed>;
 					if (alive)
-						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], noteWriters: data.noteWriters ?? [], extractions: data.extractions ?? [] });
+						setFeed({ jobs: data.jobs ?? [], pluginWorkers: data.pluginWorkers ?? [], noteWriters: data.noteWriters ?? [], handoffWriters: data.handoffWriters ?? [], extractions: data.extractions ?? [] });
 				}
 			} catch {
 				// transport blip: keep the last feed, announce again next event
@@ -202,7 +218,7 @@ export interface ActivityBlob {
 	/** job.id, or the extraction job's row id (source id, or "src#i" for
 	 *  chunk jobs — unique per row, per-chunk jobs owner 2026-09-28). */
 	id: string;
-	process: "job" | "plugin-worker" | "note-writer" | "extraction";
+	process: "job" | "plugin-worker" | "note-writer" | "handoff-writer" | "extraction";
 	/** Sub-agent kind for jobs (extraction blobs have none). */
 	jobKind?: JobKind;
 	/** Extraction phase (extracting/auditing/merging/embedding); jobs carry none. */
@@ -298,6 +314,20 @@ export function toBlobs(feed: ActivityFeed): ActivityBlob[] {
 			activity: note.activity,
 			model: note.usage?.model,
 			steps: note.usage?.steps,
+		});
+	}
+	for (const handoff of feed.handoffWriters ?? []) {
+		const last = handoff.usage?.lastStep;
+		blobs.push({
+			id: handoff.id, process: "handoff-writer", title: handoff.title, chatId: handoff.chatId,
+			startedAt: Date.parse(handoff.createdAt) || 0,
+			cost: handoff.costUsd ?? null,
+			context: handoff.contextLimit !== null && last?.inputTokens !== undefined
+				? { used: last.inputTokens + (last.outputTokens ?? 0) + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0), limit: handoff.contextLimit }
+				: null,
+			activity: handoff.activity,
+			model: handoff.usage?.model,
+			steps: handoff.usage?.steps,
 		});
 	}
 	for (const run of feed.extractions) {
@@ -451,12 +481,14 @@ function ActivityBlobRow({
 	abortState: AbortState | undefined;
 	onAbort: () => void;
 }) {
-	const Icon = blob.process === "extraction" ? WaypointsIcon : blob.process === "note-writer" ? NotebookPenIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
+	const Icon = blob.process === "extraction" ? WaypointsIcon : blob.process === "note-writer" ? NotebookPenIcon : blob.process === "handoff-writer" ? ClipboardCheckIcon : (blob.jobKind && KIND_ICON[blob.jobKind]) || BotIcon;
 	const label =
 		blob.process === "extraction"
 			? `Extraction — ${blob.phase ?? "running"}`
 			: blob.process === "note-writer"
 				? "Note writer"
+			: blob.process === "handoff-writer"
+				? "Handoff writer"
 			: blob.jobKind === "research"
 				? "Researcher"
 				: blob.jobKind === "demo"

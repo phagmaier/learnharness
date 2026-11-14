@@ -27,6 +27,7 @@ import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import { pluginWorkerActivities, type PluginWorkerActivity } from "./plugin-worker-activity.ts";
 import { noteWriterActivities, type NoteWriterActivity } from "./notes.ts";
+import { handoffWriterActivities, type HandoffWriterActivity } from "./handoffs.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
 export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
@@ -46,6 +47,12 @@ export interface ActivityJob extends JobRecord {
 
 /** A running note writer (fork plan 03), with its live cost. */
 export interface ActivityNoteWriter extends NoteWriterActivity {
+	costUsd: number | null;
+	contextLimit: number | null;
+}
+
+/** A running handoff writer (fork plan 04), with its live cost. */
+export interface ActivityHandoffWriter extends HandoffWriterActivity {
 	costUsd: number | null;
 	contextLimit: number | null;
 }
@@ -84,6 +91,7 @@ export function activityFeed(): {
 	jobs: ActivityJob[];
 	pluginWorkers: ActivityPluginWorker[];
 	noteWriters: ActivityNoteWriter[];
+	handoffWriters: ActivityHandoffWriter[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
 } {
@@ -129,12 +137,17 @@ export function activityFeed(): {
 		.map((note) => ({ ...note, costUsd: jobCost(note),
 			contextLimit: note.usage ? (limits.get(note.usage.model) ?? null) : null }))
 		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	const handoffWriters: ActivityHandoffWriter[] = handoffWriterActivities()
+		.map((handoff) => ({ ...handoff, costUsd: jobCost(handoff),
+			contextLimit: handoff.usage ? (limits.get(handoff.usage.model) ?? null) : null }))
+		.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	// oldest-first on last activity: the stable blob order (ISO strings sort chronologically)
 	jobs.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
 	return {
 		jobs,
 		pluginWorkers,
 		noteWriters,
+		handoffWriters,
 		extractions: extractions.sort((a, b) => a.startedAt - b.startedAt),
 		graphRevision: graphRevision(),
 	};

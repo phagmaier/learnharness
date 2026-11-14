@@ -128,6 +128,18 @@ The repair plan includes regression coverage, a browser check using a scratch pr
 
 *Agent-selected implementation:* retain pending plugin occurrences in call-id buckets and match results with the existing occurrence validator, preserving native questions' newest-call pairing. Read plan results only within the originating assistant's batch when assigning question titles. Event fields, id formats, storage versions and dependencies stay unchanged.
 
+*Agent-selected, plan 04 item 6 (completing, handoffs, reopening; awaiting the human's checkpoint review of the look and wording):*
+- **Role:** `handoffWriter` joins the model roles (Strong slot, schema-level override `agent.models.handoffWriter`, no Settings row), like `noteWriter`.
+- **No Strong model at completion:** the unit still completes; the computed topics are stored and the writer fails at once with the usual "No model configured" message, so "Try again" applies once a model is set.
+- **Writer identity:** a writer belongs to the handoff it started for (its `writtenAt`), so a late result after a reopen and a new completion is dropped. Results, failures, interruption and Try again leave the course's `updatedAt` alone, as evidence writes do.
+- **Reopen** also clears the unit's `completion` and `completedAt`; the kept handoff carries its own completion and date.
+- **Lifecycle ids:** `unit-completed:<chatId>:<n>` and `unit-reopened:<chatId>:<n>`, counted per unit session.
+- **Wording the plan didn't specify (proposed for the checkpoint):** the dialog names the unit under its title ("2. Linear maps"); "Writing the teacher observations…" while the writer runs; "The note couldn't be started: …" and "The conversation couldn't be exported: …" after completion; the overview's handoff opens with "Completed 20 Nov 2026 (early: …)" instead of repeating the unit's title; Background agents labels the row "Handoff writer".
+
+*Human, 2026-11-13, item 6 review follow-up:* fix both worker-startup findings. A handoff engine that cannot be built still leaves the unit completed with its computed topics and a failed writer that can be retried. An exception starting the optional note returns completion success with `noteError`, so the export and next-unit offer remain available.
+
+*Agent-selected implementation:* handle engine-construction errors inside the completion service, and catch optional-note exceptions after saving completion. Course persistence failures still propagate. No storage-format, dependency, or UI wording changes.
+
 ## Feature designs
 
 ### Courses, units, and notes

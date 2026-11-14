@@ -94,6 +94,23 @@ describe("activity dock pure layer", () => {
 		assert.match(html, /data-testid="activity-abort"/);
 	});
 
+	it("handoff writers (fork plan 04) show as \"Handoff · <unit title>\" with live cost and a stop control", () => {
+		const feed: ActivityFeed = { jobs: [], extractions: [], handoffWriters: [{
+			id: "course_a:linear-maps", courseId: "course_a", unitId: "linear-maps", chatId: "chat_u", title: "Handoff · Linear maps",
+			createdAt: new Date(NOW - 5_000).toISOString(), activity: "Writing", costUsd: 0.01, contextLimit: null,
+		}] };
+		const blob = toBlobs(feed)[0]!;
+		assert.equal(blob.process, "handoff-writer");
+		assert.equal(blob.id, "course_a:linear-maps", "the abort id names the course and the unit");
+		assert.equal(blob.chatId, "chat_u", "Open session goes to the unit's session");
+		assert.equal(blob.cost, 0.01);
+		const html = renderToStaticMarkup(<ActivitySection feed={feed} />);
+		assert.match(html, /data-testid="activity-blob-handoff-writer"/);
+		assert.match(html, /Handoff · Linear maps/);
+		assert.match(html, /data-testid="activity-abort"/);
+		assert.match(html, /aria-label="End Handoff writer in Handoff · Linear maps"/);
+	});
+
 	it("per-chunk jobs (owner, 2026-09-28): one source, N rows — unique ids (React keys), one chatId, part-suffixed titles", () => {
 		const rows = [
 			{ id: "src_a#1", chatId: "src_a", part: { i: 1, n: 2 }, title: "notes.md · 1/2", phase: "extracting", startedAt: NOW - 1000 },

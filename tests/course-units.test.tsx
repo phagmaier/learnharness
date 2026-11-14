@@ -286,6 +286,10 @@ describe("starting a unit", () => {
 	it("recovers the first graph folder after interrupted publication, even if the learner moved the session", () => {
 		for (const moved of [false, true]) {
 			const course = makeCourse(fiveUnits());
+			// The fixture's unit 2 handoff reads "writing" with no writer in this
+			// process; the first read settles it as interrupted (a course write).
+			// Settle it before the crash, so the crash hits the start's own write.
+			assert.ok(!courses.isCourseRefusal(courses.readCourse(course.id)));
 			const rename = fs.renameSync;
 			const failure = mock.method(fs, "renameSync", (from: fs.PathLike, to: fs.PathLike) => {
 				if (String(to) === path.join(TMP, "courses", course.id, "course.json")) throw new Error("interrupted course publication");
