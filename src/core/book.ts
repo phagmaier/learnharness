@@ -653,13 +653,13 @@ export function modelCandidate(blocks: readonly BookBlock[], headings: readonly 
 export type BookLocation =
 	| { ok: true; kind: "nodes"; range: BookRange; firstBlock: number; lastBlock: number; label: string }
 	| { ok: true; kind: "pages"; firstBlock: number; lastBlock: number; label: string }
-	| { ok: true; kind: "blocks"; firstBlock: number; lastBlock: number; label: string }
+	| { ok: true; kind: "blocks"; firstBlock: number; lastBlock: number; firstOffset?: number; label: string }
 	| { ok: false; error: string };
 
 const RANGE_SEPARATOR = /[\u2013\u2014-]|\s+to\s+/g;
 const PAGE_REF = /^(?:pp?\.\s*|pp?\s+|pages?\s+)([0-9]+|[ivxlcdm]+)(?:\s*[\u2013\u2014-]\s*([0-9]+|[ivxlcdm]+))?$/i;
-/** Block numbers (item 4): where a long read_section continues. */
-const BLOCK_REF = /^blocks?\s+([0-9]+)(?:\s*[\u2013\u2014-]\s*([0-9]+))?$/i;
+/** Block numbers and UTF-16 offsets: where a long read_section continues. */
+const BLOCK_REF = /^blocks?\s+([0-9]+)(?:\s*[\u2013\u2014-]\s*([0-9]+))?(?:\s+from\s+offset\s+([0-9]+))?$/i;
 
 /** A node as lines show it: its title when that starts with the label, else label and title. */
 export function displayNode(node: BookNode): string {
@@ -747,7 +747,8 @@ function pageBlocks(blocks: readonly BookBlock[], from: string, to: string): { f
  * Resolve a location as agents and links write it: a node id ("n12"), a
  * label ("§187", "IV", "Chapter 2"), a title, a range of either ("§178–§196",
  * "§178-196", "n3 to n9"), pages ("p. 114", "pp. 114–116"), or block
- * numbers ("blocks 341–512", which a long read_section names to continue).
+ * numbers ("blocks 341–512", optionally "from offset 120" within the first
+ * block, which a long read_section names to continue).
  */
 export function resolveBookLocation(nodes: readonly BookNode[], blocks: readonly BookBlock[], input: string): BookLocation {
 	const text = input.trim();
@@ -758,7 +759,16 @@ export function resolveBookLocation(nodes: readonly BookNode[], blocks: readonly
 		const last = block[2] === undefined ? first : Number(block[2]);
 		if (last < first) return { ok: false, error: `The blocks end (${last}) before they start (${first}).` };
 		if (last >= blocks.length) return { ok: false, error: `This book's blocks run from 0 to ${blocks.length - 1}.` };
-		return { ok: true, kind: "blocks", firstBlock: first, lastBlock: last, label: first === last ? `block ${first}` : `blocks ${first}–${last}` };
+		const firstOffset = block[3] === undefined ? undefined : Number(block[3]);
+		if (firstOffset !== undefined) {
+			const source = blocks[first]!.text;
+			if (!Number.isSafeInteger(firstOffset) || firstOffset >= source.length) return { ok: false, error: `Block ${first} has ${source.length} characters; use an offset before its end.` };
+			if (/[\uDC00-\uDFFF]/.test(source.charAt(firstOffset)) && /[\uD800-\uDBFF]/.test(source.charAt(firstOffset - 1))) {
+				return { ok: false, error: "The offset splits a Unicode character. Use the preceding offset." };
+			}
+		}
+		const label = `${first === last ? `block ${first}` : `blocks ${first}–${last}`}${firstOffset === undefined ? "" : ` from offset ${firstOffset}`}`;
+		return { ok: true, kind: "blocks", firstBlock: first, lastBlock: last, ...(firstOffset === undefined ? {} : { firstOffset }), label };
 	}
 	const page = text.match(PAGE_REF);
 	if (page) {

@@ -24,7 +24,7 @@ const bookMapInput = Type.Object({
 	at: Type.Optional(Type.String({ description: "A section or range from the outline, by id or label (\"n12\", \"§187\", \"IV.A\", \"§178–§196\"). Leave out for the whole book." })),
 });
 const readSectionInput = Type.Object({
-	at: Type.String({ minLength: 1, description: "Where to read: a section's id or label, a range (\"§178–§196\"), or pages (\"pp. 114–116\")." }),
+	at: Type.String({ minLength: 1, description: "Where to read: a section's id or label, a range (\"§178–§196\"), or pages (\"pp. 114–116\"). For a long read, copy the continuation location exactly (\"blocks 341–512 from offset 120\")." }),
 });
 const searchBookInput = Type.Object({
 	query: Type.String({ minLength: 1, description: "A word or phrase, matched case- and accent-insensitively." }),

@@ -241,6 +241,8 @@ Fix all six review findings within item 3: the in-use check skipping records it 
 - The tools' limits: `read_section` ends a long read with "Continues: call read_section with at "blocks 341–512"" (block numbers become a location form); `book_map` over its cap says "Too large to show in full. Narrow to one of: …"; `search_book` says "57 matches; showing the first 20. Add words to narrow it." or "No matches for "…".".
 - The doctrine's second paragraph (quoting through `quote_passage`) joins the prompt in item 5, with the tool.
 
+*Human, item 4 review follow-up:* fix both retrieval findings: enforce the 8k-token read limit even within a single oversized block, with lossless continuation, and make an oversized selected map expose smaller locations instead of recommending itself. Block continuations may carry a character offset; dependencies and storage formats stay unchanged. Implementation and checks: [plan 05, item 4 review repairs](plans/05-books.md#item-4-review-repairs-2026-11-14).
+
 ## Feature designs
 
 ### Courses, units, and notes

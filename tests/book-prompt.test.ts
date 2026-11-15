@@ -157,9 +157,48 @@ describe("read_section", () => {
 		assert.ok(rest.startsWith(`blocks 15–29\n\n${"15".padEnd(2_000, "a")}`));
 		assert.ok(rest.endsWith("29".padEnd(2_000, "a")), "the rest fits");
 		assert.ok(readSectionText(nodes, blocks, "blocks 14–15").text.endsWith("15".padEnd(2_000, "a")));
-		// One block over the cap is still read whole.
-		const huge: BookBlock[] = [{ id: 0, kind: "paragraph", text: "b".repeat(40_000) }];
-		assert.equal(readSectionText([], huge, "block 0").text, `block 0\n\n${"b".repeat(40_000)}`);
+	});
+
+	it("continues within an oversized block without losing text or the rest of the range", () => {
+		const opening = "Every idea depends on its conditions. ".repeat(12_000);
+		const blocks: BookBlock[] = [
+			{ id: 0, kind: "paragraph", text: opening },
+			{ id: 1, kind: "paragraph", text: "The next paragraph." },
+			{ id: 2, kind: "paragraph", text: "Outside the requested range." },
+		];
+		let at = "blocks 0–1";
+		let recovered = "";
+		const locations = new Set<string>();
+		for (;;) {
+			assert.ok(!locations.has(at), "a continuation must make progress");
+			locations.add(at);
+			const result = readSectionText([], blocks, at);
+			assert.equal(result.error, undefined, result.text);
+			assert.ok(result.text.length <= 32_000, `returned ${result.text.length} characters`);
+			const continuation = result.text.match(/\n\nContinues: call read_section with at "([^"]+)"$/);
+			const body = result.text.slice(result.text.indexOf("\n\n") + 2, continuation?.index);
+			recovered += body;
+			if (!continuation) break;
+			at = continuation[1]!;
+			assert.ok(locations.size < 30, "the bounded reads must finish");
+		}
+		assert.equal(recovered, `${opening}\n\nThe next paragraph.`);
+	});
+
+	it("resumes on the right page and preserves Unicode across partial blocks", () => {
+		const text = "α😀 ".repeat(20_000);
+		const blocks: BookBlock[] = [{ id: 0, kind: "paragraph", text, page: 1, breaks: [{ at: 4, page: 2 }] }];
+		const first = readSectionText([], blocks, "block 0 from offset 4").text;
+		assert.ok(first.startsWith("block 0 from offset 4, p. 2\n\n[p. 2]\n"));
+		const next = first.match(/\n\nContinues: call read_section with at "([^"]+)"$/)!;
+		assert.ok(next, "a partial block has a continuation");
+		const offset = Number(next[1]!.match(/offset (\d+)$/)![1]);
+		const body = first.slice(first.indexOf("[p. 2]\n") + "[p. 2]\n".length, next.index);
+		assert.equal(body, text.slice(4, offset));
+		assert.ok(!/[\uD800-\uDBFF]$/.test(body), "a surrogate pair must stay together");
+		assert.ok(first.length <= 32_000);
+		const following = readSectionText([], blocks, next[1]!).text;
+		assert.ok(following.startsWith(`${next[1]}, p. 2\n\n[p. 2]\n`));
 	});
 
 	it("sends a location it can't find back to the model", () => {
@@ -173,6 +212,11 @@ describe("block locations", () => {
 		assert.deepEqual(resolveBookLocation(NODES, BLOCKS, "blocks 2–3"), { ok: true, kind: "blocks", firstBlock: 2, lastBlock: 3, label: "blocks 2–3" });
 		assert.deepEqual(resolveBookLocation(NODES, BLOCKS, "block 4"), { ok: true, kind: "blocks", firstBlock: 4, lastBlock: 4, label: "block 4" });
 		assert.deepEqual(resolveBookLocation(NODES, BLOCKS, "blocks 3-2"), { ok: false, error: "The blocks end (2) before they start (3)." });
+		assert.deepEqual(resolveBookLocation(NODES, BLOCKS, "blocks 2–3 from offset 5"), {
+			ok: true, kind: "blocks", firstBlock: 2, lastBlock: 3, firstOffset: 5, label: "blocks 2–3 from offset 5",
+		});
+		assert.equal(readSectionText(NODES, BLOCKS, "block 2 from offset 9999").error, true);
+		assert.equal(readSectionText([], [{ id: 0, kind: "paragraph", text: "a😀b" }], "block 0 from offset 2").error, true);
 	});
 });
 
@@ -211,6 +255,55 @@ describe("book_map", () => {
 		const one = bookMapText(big, [], "n41").text;
 		assert.ok(one.startsWith("Map of Part 2 (Life):\n[n41] Part 2. Life\n  [n42] §41 — "), one.slice(0, 80));
 		assert.ok(!one.includes("Too large"), "one part fits");
+	});
+
+	it("lets an oversized selected chapter reach every child through its narrowing advice", () => {
+		const chapter: BookNode = { id: "n0", label: "Chapter 1", title: "The argument", kind: "chapter", level: 1, firstBlock: 0, lastBlock: 199 };
+		const children: BookNode[] = Array.from({ length: 200 }, (_, i) => ({
+			id: `n${i + 1}`, parentId: "n0", label: `Section ${i + 1}`, title: `Topic ${i + 1}`,
+			kind: "section", level: 2, firstBlock: i, lastBlock: i, summary: "s".repeat(150),
+		}));
+		const nodes = [chapter, ...children];
+		const pending = ["n0"];
+		const visited = new Set<string>();
+		const visible = new Set<string>();
+		while (pending.length > 0) {
+			const at = pending.shift()!;
+			assert.ok(!visited.has(at), `narrowing repeats ${at}`);
+			visited.add(at);
+			const answer = bookMapText(nodes, [], at);
+			assert.equal(answer.error, undefined);
+			for (const match of answer.text.matchAll(/^\s*\[(n\d+)\] .* — s{150}$/gm)) visible.add(match[1]!);
+			const advice = answer.text.split("Narrow to one of: ")[1];
+			if (advice) {
+				for (const choice of advice.split(", ")) {
+					const location = choice.match(/^(n\d+(?: to n\d+)?)/)?.[1];
+					assert.ok(location, `unusable narrowing advice: ${choice}`);
+					pending.push(location);
+				}
+			}
+			assert.ok(visited.size < 250, "navigation must finish");
+		}
+		assert.deepEqual([...visible].sort(), children.map((node) => node.id).sort());
+	});
+
+	it("keeps all subtrees reachable when there are more than 30 narrowing choices", () => {
+		const nodes: BookNode[] = [{ id: "n0", label: "Chapter 1", title: "The argument", kind: "chapter", level: 1, firstBlock: 0, lastBlock: 159 }];
+		for (let section = 0; section < 40; section++) {
+			const parentId = `n${nodes.length}`;
+			nodes.push({ id: parentId, parentId: "n0", label: `Section ${section + 1}`, title: "", kind: "section", level: 2, firstBlock: section * 4, lastBlock: section * 4 + 3, summary: "s".repeat(150) });
+			for (let p = 0; p < 4; p++) {
+				nodes.push({ id: `n${nodes.length}`, parentId, label: `§${section * 4 + p + 1}`, title: "", kind: "paragraph", level: 3, firstBlock: section * 4 + p, lastBlock: section * 4 + p, summary: "s".repeat(150) });
+			}
+		}
+		const first = bookMapText(nodes, [], "n0").text;
+		const advice = first.split("Narrow to one of: ")[1]!.split(", ");
+		assert.equal(advice.length, 30);
+		assert.equal(advice.at(-1), "n146 to n196");
+		const rest = bookMapText(nodes, [], "n146 to n196").text;
+		assert.ok(rest.includes("[n150] §120 — "), "the first grouped subtree is readable");
+		assert.ok(rest.includes("[n200] §160 — "), "the last subtree wasn't lost to an ellipsis");
+		assert.ok(!rest.includes("Too large"), "the remaining group fits");
 	});
 
 	it("when even the top level doesn't fit, names the range left out", () => {

@@ -17,6 +17,7 @@ import {
 	displayNode,
 	fitBookNodes,
 	nodesInRanges,
+	pageAtOffset,
 	rangeText,
 	resolveBookLocation,
 	searchBookBlocks,
@@ -140,18 +141,29 @@ export function bookMapText(nodes: readonly BookNode[], blocks: readonly BookBlo
 		selected = nodesInRanges(nodes, [location.range]);
 		title = rangeText(nodes, location.range);
 	}
-	const fitted = fitBookNodes(selected, BOOK_MAP_TOOL_TOKENS, true);
-	const text = `Map of ${title}:\n${fitted.text}`;
-	if (fitted.complete) return { text };
-	const choices = fitted.collapsed.length > 0
-		? fitted.collapsed.map((node) => `${node.id} (${displayNode(node)})`)
-		: [];
-	if (fitted.hidden.length > 0) {
-		const first = fitted.hidden[0]!;
-		const last = fitted.hidden.at(-1)!;
-		choices.push(first === last ? `${first.id} (${displayNode(first)})` : `${first.id} to ${last.id}`);
+	let fitted = fitBookNodes(selected, BOOK_MAP_TOOL_TOKENS, true);
+	let map = fitted.text;
+	// If only the selected root fits, asking for it again cannot narrow.
+	// Keep its overview, then fit its children as roots so the next choices
+	// name smaller subtrees or the remaining child range.
+	if (fitted.collapsed.length === 1 && fitted.collapsed[0] === selected[0] && fitted.hidden.length === 0) {
+		const selectedIds = new Set(selected.map((node) => node.id));
+		if (selected.slice(1).every((node) => node.parentId && selectedIds.has(node.parentId))) {
+			const remainingTokens = BOOK_MAP_TOOL_TOKENS - Math.ceil((map.length + 1) / BOOK_CHARS_PER_TOKEN);
+			fitted = fitBookNodes(selected.slice(1), Math.max(0, remainingTokens), true);
+			map += `\n${fitted.text}`;
+		}
 	}
-	const named = choices.length > NARROW_CHOICES ? [...choices.slice(0, NARROW_CHOICES), "…"] : choices;
+	const text = `Map of ${title}:\n${map}`;
+	if (fitted.complete) return { text };
+	const choices = fitted.collapsed.map((node) => ({ from: node, to: node }));
+	if (fitted.hidden.length > 0) choices.push({ from: fitted.hidden[0]!, to: fitted.hidden.at(-1)! });
+	// A range for the remaining choices keeps every subtree reachable;
+	// replacing them with an ellipsis would hide their locations again.
+	if (choices.length > NARROW_CHOICES) {
+		choices.splice(NARROW_CHOICES - 1, choices.length, { from: choices[NARROW_CHOICES - 1]!.from, to: choices.at(-1)!.to });
+	}
+	const named = choices.map(({ from, to }) => from === to ? `${from.id} (${displayNode(from)})` : `${from.id} to ${to.id}`);
 	return { text: `${text}\n\nToo large to show in full. Narrow to one of: ${named.join(", ")}` };
 }
 
@@ -173,57 +185,92 @@ function pageOf(entry: { page?: number; pageLabel?: string }): string | undefine
 
 /** One block as read_section shows it: page markers where pages start,
  *  section labels where sections start, headings marked. */
-function blockText(nodes: readonly BookNode[], block: BookBlock, pageBefore: string | undefined): { text: string; page: string | undefined } {
+function blockText(nodes: readonly BookNode[], block: BookBlock, pageBefore: string | undefined, from: number, to: number): { text: string; page: string | undefined } {
 	const lines: string[] = [];
 	let page = pageBefore;
-	const starts = pageOf(block);
+	const starts = pageAtOffset(block, from);
 	if (starts !== undefined && starts !== page) { lines.push(`[p. ${starts}]`); page = starts; }
-	const labels = startLabels(nodes, block);
+	const labels = from === 0 ? startLabels(nodes, block) : [];
 	if (labels.length > 0) lines.push(`[${labels.join(" › ")}]`);
 	const pieces: string[] = [];
-	let from = 0;
+	let start = from;
 	for (const brk of block.breaks ?? []) {
-		pieces.push(block.text.slice(from, brk.at).trim(), `[p. ${pageOf(brk)}]`);
-		from = brk.at;
+		if (brk.at <= from || brk.at >= to) continue;
+		pieces.push(block.text.slice(start, brk.at).trimEnd(), `[p. ${pageOf(brk)}]`);
+		start = brk.at;
 		page = pageOf(brk);
 	}
-	pieces.push(block.text.slice(from).trim());
+	pieces.push(block.text.slice(start, to));
 	const body = pieces.filter(Boolean).join(" ");
-	lines.push(block.kind === "heading" ? `${"#".repeat(block.level ?? 1)} ${body}` : body);
+	lines.push(block.kind === "heading" && from === 0 ? `${"#".repeat(block.level ?? 1)} ${body}` : body);
 	return { text: lines.join("\n"), page };
 }
 
-/** read_section: the exact text of a location with labels and page
- *  markers, about 8k tokens at most (always at least one whole block); a
- *  longer location ends with where to continue. */
+/** read_section: bounded exact text with labels and page markers. Prefer
+ *  whole blocks; an oversized block continues at a UTF-16 offset without
+ *  splitting a Unicode character. The envelope counts toward the cap too. */
 export function readSectionText(nodes: readonly BookNode[], blocks: readonly BookBlock[], at: string): BookToolText {
 	if (blocks.length === 0) return refusal("This book has no text.");
 	const location = resolveBookLocation(nodes, blocks, at);
 	if (!location.ok) return refusal(location.error);
 	const budget = READ_SECTION_TOKENS * BOOK_CHARS_PER_TOKEN;
-	const title = location.kind === "nodes" ? rangeText(nodes, location.range) : location.label;
+	const rawTitle = location.kind === "nodes" ? rangeText(nodes, location.range) : location.label;
+	const title = rawTitle.length > 512 ? `${rawTitle.slice(0, 511)}…` : rawTitle;
+	const firstOffset = location.kind === "blocks" ? location.firstOffset ?? 0 : 0;
+	const firstPage = pageAtOffset(blocks[location.firstBlock]!, firstOffset);
 	const parts: string[] = [];
 	let size = 0;
-	// The first block always shows its page; later ones where a page starts.
 	let page: string | undefined;
-	let firstPage: string | undefined;
-	let end = location.firstBlock - 1;
+	let nextBlock = location.firstBlock;
+	let nextOffset = firstOffset;
+	const envelope = (lastPage: string | undefined, block: number, offset: number) => {
+		const pages = firstPage === undefined || location.kind === "pages" ? "" : firstPage === lastPage || lastPage === undefined ? `, p. ${firstPage}` : `, pp. ${firstPage}–${lastPage}`;
+		const where = `${block === location.lastBlock ? `block ${block}` : `blocks ${block}–${location.lastBlock}`}${offset > 0 ? ` from offset ${offset}` : ""}`;
+		return {
+			header: `${title}${pages}\n\n`,
+			tail: block <= location.lastBlock ? `\n\nContinues: call read_section with at ${quoted(where)}` : "",
+		};
+	};
 	for (let index = location.firstBlock; index <= location.lastBlock; index++) {
-		const rendered = blockText(nodes, blocks[index]!, page);
-		if (parts.length > 0 && size + rendered.text.length + 2 > budget) break;
-		firstPage ??= pageOf(blocks[index]!) ?? page;
+		const block = blocks[index]!;
+		const from = index === location.firstBlock ? firstOffset : 0;
+		const safeEnd = (end: number) => end < block.text.length && /[\uD800-\uDBFF]/.test(block.text.charAt(end - 1)) && /[\uDC00-\uDFFF]/.test(block.text.charAt(end)) ? end - 1 : end;
+		const render = (end: number) => {
+			const to = safeEnd(end);
+			const rendered = blockText(nodes, block, page, from, to);
+			const next = to < block.text.length ? index : index + 1;
+			const offset = to < block.text.length ? to : 0;
+			const { header, tail } = envelope(rendered.page, next, offset);
+			return { ...rendered, to, next, offset, length: header.length + size + (parts.length > 0 ? 2 : 0) + rendered.text.length + tail.length };
+		};
+		let rendered = render(Math.min(block.text.length, from + budget));
+		if (rendered.length > budget) {
+			// Keep ordinary blocks intact after one has fitted. Only the first
+			// block needs slicing, so every successful call still makes progress.
+			if (parts.length > 0) break;
+			let low = from + 1;
+			let high = Math.min(block.text.length, from + budget);
+			let fitted: typeof rendered | undefined;
+			while (low <= high) {
+				const middle = Math.floor((low + high) / 2);
+				const candidate = render(middle);
+				if (candidate.length <= budget) {
+					if (candidate.to > from) fitted = candidate;
+					low = middle + 1;
+				} else high = middle - 1;
+			}
+			if (!fitted) return refusal("This location's labels are too large to read within the limit.");
+			rendered = fitted;
+		}
+		size += (parts.length > 0 ? 2 : 0) + rendered.text.length;
 		parts.push(rendered.text);
-		size += rendered.text.length + 2;
 		page = rendered.page;
-		end = index;
+		nextBlock = rendered.next;
+		nextOffset = rendered.offset;
+		if (nextOffset > 0) break;
 	}
-	const lastPage = page;
-	// A pages location already names its pages.
-	const pages = firstPage === undefined || location.kind === "pages" ? "" : firstPage === lastPage || lastPage === undefined ? `, p. ${firstPage}` : `, pp. ${firstPage}–${lastPage}`;
-	const continues = end < location.lastBlock
-		? `\n\nContinues: call read_section with at ${quoted(end + 1 === location.lastBlock ? `block ${end + 1}` : `blocks ${end + 1}–${location.lastBlock}`)}`
-		: "";
-	return { text: `${title}${pages}\n\n${parts.join("\n\n")}${continues}` };
+	const { header, tail } = envelope(page, nextBlock, nextOffset);
+	return { text: `${header}${parts.join("\n\n")}${tail}` };
 }
 
 /** search_book: up to 20 matches in book order, each with its location,
