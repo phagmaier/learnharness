@@ -243,6 +243,10 @@ Fix all six review findings within item 3: the in-use check skipping records it 
 
 *Human, item 4 review follow-up:* fix both retrieval findings: enforce the 8k-token read limit even within a single oversized block, with lossless continuation, and make an oversized selected map expose smaller locations instead of recommending itself. Block continuations may carry a character offset; dependencies and storage formats stay unchanged. Implementation and checks: [plan 05, item 4 review repairs](plans/05-books.md#item-4-review-repairs-2026-11-14).
 
+### Book tool cards show the text read — 2026-11-14, human
+
+The expanded `read_section`, `book_map` and `search_book` cards in the transcript show the text the model received under Output, as the file `read` card does. Before this they showed the result's `{ tool }` details tag. Display only: stored results are unchanged, so earlier sessions show the text too. *Agent-selected:* the card reads the result's text content for these three tools (`components/artifacts/tool-call-card.tsx`) rather than copying the text into `details`, which would have stored every read twice.
+
 ## Feature designs
 
 ### Courses, units, and notes

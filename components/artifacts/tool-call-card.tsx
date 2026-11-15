@@ -21,6 +21,16 @@ interface ToolCallPart {
 	input?: unknown;
 	output?: unknown;
 	errorText?: string;
+	result?: { content?: readonly { type: string; text?: string }[] };
+}
+
+/** The book tools (fork plan 05) keep only a `{ tool }` tag in their details;
+ *  their card shows the text the model received instead. */
+const BOOK_TOOLS = new Set(["book_map", "read_section", "search_book"]);
+
+function resultText(result: ToolCallPart["result"]): string | null {
+	const texts = (result?.content ?? []).flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []));
+	return texts.length > 0 ? texts.join("\n") : null;
 }
 
 /** The collapsed headline argument per tool: path for read/ls/show_image, pattern for
@@ -68,7 +78,7 @@ export function ToolCallCard({ part }: ArtifactPartProps) {
 	const p = part as ToolCallPart;
 	const tool = p.type.replace(/^tool-/, "");
 	const arg = headlineArg(tool, p.input);
-	const out = outputText(p.output);
+	const out = (BOOK_TOOLS.has(tool) ? resultText(p.result) : null) ?? outputText(p.output);
 	const failed = p.state === "output-error" || typeof p.errorText === "string";
 	return (
 		<details

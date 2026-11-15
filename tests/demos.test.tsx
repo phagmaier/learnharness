@@ -1106,6 +1106,28 @@ describe("tool + renderer registry wiring", () => {
 		assert.ok(html.includes("<details"), "collapsed by default via a details element");
 	});
 
+	it("the tool-call card: the book tools show the text the model read, not their details tag", () => {
+		for (const [tool, input, text] of [
+			["read_section", { at: "Sense-certainty" }, "Sense-certainty (pp. 58–66)\n[p. 58] The knowledge which is at the start…"],
+			["book_map", {}, "Outline of Phenomenology of Spirit\nn1 Preface"],
+			["search_book", { query: "the This" }, "2 hits for \"the This\":\n§91 (p. 59): the This as being"],
+		] as const) {
+			const part = {
+				type: `tool-${tool}`,
+				state: "output-available",
+				toolCallId: `b-${tool}`,
+				input,
+				output: { tool },
+				result: { content: [{ type: "text", text }], details: { tool }, isError: false },
+			};
+			const html = renderToStaticMarkup(<ToolCallCard part={part as never} />);
+			const body = html.split("</summary>")[1] ?? "";
+			assert.match(body, /Output/, `${tool} shows an output section`);
+			assert.ok(body.includes(text.split("\n")[1]!.replace(/"/g, "&quot;")), `${tool} shows the text the model received`);
+			assert.doesNotMatch(body, /&quot;tool&quot;/, `${tool} doesn't show its details tag`);
+		}
+	});
+
 	it("the tool-call card: image-bearing read results note the attachment; errors render red", () => {
 		const imgPart = {
 			type: "tool-read",
