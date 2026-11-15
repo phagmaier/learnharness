@@ -1,6 +1,6 @@
 # Plan 05: books (roadmap step 5)
 
-**Status:** approved by the human 2026-11-14, including its Proposed items. Items 1–3 (each with review repairs) are implemented and checkpoint 1 (the look of items 1–3) was approved on 2026-11-14. Item 4 is implemented; its browser check is still owed. Items 5–8 remain. Work happens on the books branch off `main`, one commit per item when requested. Checkpoints after items 3 and 5 are approved before work continues. Progress is recorded under [Outcome](#outcome).
+**Status:** approved by the human 2026-11-14, including its Proposed items. Items 1–3 (each with review repairs) are implemented and checkpoint 1 (the look of items 1–3) was approved on 2026-11-14. Item 4 is implemented and merged to `main` with items 1–3 (2026-11-14); the human tried it by hand and it worked, and the agent's browser check is still owed. Items 5–8 remain. Work happens on a branch off `main` (the books branch was merged and deleted on 2026-11-14), one commit per item when requested. Checkpoints after items 3 and 5 are approved before work continues. Progress is recorded under [Outcome](#outcome).
 
 Designs: [fork README](../README.md), "Books". Choices made in this plan's interview are marked **Decided (human)**. **Proposed** items are product choices the agent filled in (wording, UI details, small rules); approving the plan approves them, or the human edits them. *Agent-selected* items are implementation details, reported again at completion.
 
@@ -275,7 +275,7 @@ Items 1–3 stand alone (a library with no agent use). Items 4–5 give standalo
 
 ## Finishing
 
-- **Commits:** one per item, in order, on the books branch.
+- **Commits:** one per item, in order, on a branch off `main`.
 - **Completion report per item:** what changed, checks and results, human checks still owed, and agent-selected choices.
 - If implementation raises a product question this plan doesn't settle, work stops and the question goes to the human.
 

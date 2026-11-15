@@ -24,6 +24,7 @@ For non-trivial work: investigate, propose a plan, get it approved, then impleme
 
 - Node comes from `mise` ([mise.toml](mise.toml), Node 26 like CI). **Agent shells are not mise-activated**: a bare `node` resolves to the global Node 24. Prefix every Node/npm/npx command with `mise exec --` (as below) unless `node --version` already prints v26.
 - The package manager is **npm** with the committed `package-lock.json`. Do not switch to pnpm or yarn. Use `npm ci` for installs; add or upgrade dependencies only when the plan approves it.
+- GitHub: `origin` is the fork (`phagmaier/learnharness`), `upstream` the original. Push, open PRs and run `gh` only against the fork. `gh` resolves to `upstream` unless a default is set; run `gh repo set-default phagmaier/learnharness` once per clone (it lives in `.git/config`).
 - The host is NixOS with nix-ld. The browser app needs nothing extra. Electron (`desktop:dev`, native renderer tests) must run inside `nix develop`. See [docs/fork/nixos.md](docs/fork/nixos.md).
 
 ## Commands
@@ -55,6 +56,9 @@ Never run raw `next dev`/`next build`: the npm scripts stage `core-plugins/` fir
 - Do not hand-edit [golden fixtures](tests/fixtures/golden-data/README.md) to make tests pass; storage-format changes need an approved plan.
 - Inspect `scripts/` before running them: some mutate data or call models.
 - For UI changes, verify in a real browser (Playwright or the running app), not only by static render.
+  - To see a transcript card without calling a model, write a session file shaped like those in `tests/fixtures/golden-data/chats/` into `<scratch>/data/chats/` and open `/chat/<id>`.
+  - Start the dev server after `npm test` finishes: one left running during the suite keeps reloading open pages. The first request to a fresh dev server can take a minute or two to compile.
+  - The Playwright MCP writes logs to `.playwright-mcp/` (git-ignored); delete it when done.
 
 ## Finishing work
 
