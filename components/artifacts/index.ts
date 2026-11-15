@@ -62,4 +62,8 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// discipline (their results are pre-formatted strings too).
 	list_sessions: ToolCallCard,
 	list_propositions: ToolCallCard,
+	// Fork plan 05: the book tools, the same quiet card (location or query).
+	book_map: ToolCallCard,
+	read_section: ToolCallCard,
+	search_book: ToolCallCard,
 };

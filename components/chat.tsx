@@ -65,13 +65,14 @@ import {
 } from "@/src/core";
 import { PlanBlock, PlanPopup, latestTree } from "@/components/plan-block";
 import { SessionNotesChip } from "@/components/notes-chip";
+import { BookChip } from "@/components/book-chip";
 import { courseNotesHref } from "@/components/session-list";
 import { PlanMarginalia, planExists } from "@/components/plan-window";
 import { MermaidOverlay, SessionMermaidContext, type SessionImage } from "@/components/session-overlay";
 import { AbortTurnDialog, type AbortMode } from "@/components/abort-turn-dialog";
 import { ArrowRightIcon, DumbbellIcon, MessageCircleQuestionIcon, WaypointsIcon } from "lucide-react";
 import type { PlanBlockData } from "@/src/core";
-import { latestProposalCallId, unitSessionView, type CourseRecord, type SessionCourseView } from "@/src/core";
+import { latestProposalCallId, unitSessionView, type CourseRecord, type SessionBookView, type SessionCourseView } from "@/src/core";
 import { CourseSetupContext } from "@/components/artifacts/course-proposal-card";
 import { CourseProposalsContext, decideProposal, type CourseProposalsState } from "@/components/course-changes-card";
 import { CourseClosedBand, courseSessionClosed, UnitBreadcrumb, UnitStartedLine } from "@/components/course-session";
@@ -279,9 +280,12 @@ export function Chat({
 	initialConfigured = false,
 	kind = "teach",
 	course,
+	book,
 }: {
 	/** Fork plan 04: the session's place in a course, as the page read it. */
 	course?: SessionCourseView;
+	/** Fork plan 05: the session's book (its own, or its course's). */
+	book?: SessionBookView;
 	chatId: string;
 	title: string;
 	initialMessages: LhMessage[];
@@ -1753,6 +1757,8 @@ export function Chat({
 							<div className="min-w-4 flex-1" aria-hidden="true" />
 					</>
 					)}
+					{/* Fork plan 05 item 4: the session's book. */}
+					{book && <BookChip book={book} />}
 					{/* Fork plan 04 item 6: the unit's "Unit" menu, or "Complete unit"
 					    once the teacher has marked the goal reached. */}
 					{unitView && <UnitCompletion view={unitView} chatId={chatId} />}

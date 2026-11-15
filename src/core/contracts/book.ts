@@ -169,6 +169,16 @@ export interface BookRange {
 /** A chat's book (fork plan 05): standalone Teach sessions and course setups. */
 export interface ChatBookLink {
 	bookId: string;
+	/** Course setups only: "Follow its structure" or "Reference only", chosen
+	 *  with the book and copied into the course when it is created. Teach
+	 *  sessions have none. */
+	mode?: "follow" | "reference";
+}
+
+/** What a session's or course's book chip shows (item 4). */
+export interface SessionBookView {
+	bookId: string;
+	title: string;
 }
 
 /** A course's book: followed (units have readings) or reference only. */

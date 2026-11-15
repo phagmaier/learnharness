@@ -8,6 +8,9 @@ import { APP_IDENTITY, piEngineFor, type PiEngine } from "./models.ts";
 import { effectivePromptSegments } from "./prompt-segments.ts";
 import { PROBER_UNIT_DOCTRINE, SETUP_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "./course-prompts.ts";
 import { goalReachedTool, proposeCourseChangesTool, type RecordCourseProposal } from "./tools/course.ts";
+import { bookPromptSection } from "./book-prompts.ts";
+import { BOOK_TOOL_NAMES, bookTools, type BookToolSource } from "./tools/book.ts";
+import type { BookPromptParts } from "../core/book-prompt.ts";
 import {
 	askUserQuestionTool,
 	createProberTools,
@@ -66,6 +69,8 @@ export const CONVERSATION_TOOL_NAMES = Object.freeze([
 	"plan_init", "list_sessions", "list_propositions", "problem", "conclude", sendToUserTool.name,
 	// Fork plan 04: the course tools.
 	"propose_course", "goal_reached", "propose_course_changes",
+	// Fork plan 05: the book tools.
+	...BOOK_TOOL_NAMES,
 ] as const);
 
 // P2 (2026-09-19): segment discovery + override resolution live in ONE
@@ -186,6 +191,15 @@ export interface AgentBuildOptions {
 		recordGoalReached?: (summary: string, toolCallId: string) => string | null;
 		proposeCourseChanges?: RecordCourseProposal;
 	};
+	/** Fork plan 05 item 4: the session's book, composed fresh each turn by
+	 *  the server. The prober, teacher and setup agent append its section
+	 *  after the course section; with a `source` (a book that can be read)
+	 *  they also get book_map, read_section and search_book. The
+	 *  practitioner ignores it (item 7). */
+	book?: {
+		parts: BookPromptParts;
+		source?: BookToolSource;
+	};
 }
 
 /** The unit doctrine for the agent kind, before the course context; none
@@ -257,14 +271,19 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const narrated = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
 	// Fork plan 04: a unit session's course section closes the app's own
 	// prompt, after the agent's doctrine and before plugin instructions.
+	// Fork plan 05: the book section follows it.
 	const courseSection = unitCourseSection(kind, opts.course);
-	const builtinPrompt = courseSection ? `${narrated}\n\n---\n\n${courseSection}` : narrated;
+	const bookSection = opts.book ? bookPromptSection(kind, opts.book.parts) : null;
+	const builtinPrompt = [narrated, courseSection, bookSection].filter(Boolean).join("\n\n---\n\n");
+	// The book tools join a built registry; explicit registries stay caller-owned.
+	const bookSource = kind !== "practice" && opts.tools === undefined ? opts.book?.source : undefined;
 	// Bind native read and preserve the kind/model-aware Claude output gate
 	// before resolving additive plugins. Explicit registries remain caller-owned.
 	const builtinTools = [
 		...tools.map((tool) => tool.name === "read" && tool.execute === readTool.execute
 			? { ...tool, execute: createReadTool(engine.model).execute as AgentTool<any>["execute"] }
 			: tool),
+		...(bookSource ? Object.values(bookTools(bookSource)) : []),
 		...(sendToUserApplies(kind, engine.model, opts.tools !== undefined)
 			? [withArgumentHeal(sendToUserTool)]
 			: []),

@@ -19,6 +19,9 @@ import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { courseInputRefusal, syncSessionEvidence, unitTurnCourse } from "./courses.ts";
 import { sessionExtracts } from "../core/course.ts";
 import { PROBER_UNIT_DOCTRINE, TEACHER_UNIT_DOCTRINE } from "../agent/course-prompts.ts";
+import { bookPromptSection } from "../agent/book-prompts.ts";
+import { sessionBookTurn } from "./book-sessions.ts";
+import type { ChatRecord } from "../core/contracts.ts";
 import type { ModelRole } from "../../config.ts";
 import {
 	deliverJobResult,
@@ -87,6 +90,22 @@ function coursePromptTokens(course: ReturnType<typeof unitTurnCourse>, teaching:
 	if (!course) return 0;
 	const doctrine = teaching ? TEACHER_UNIT_DOCTRINE : PROBER_UNIT_DOCTRINE;
 	return Math.ceil((doctrine.length + course.context.length + "\n\n---\n\n\n\n".length) / 4);
+}
+
+/** The agent a turn over this record builds, as the prompt accounting
+ *  sees it (the construction below decides on the same facts). */
+function promptAgentKind(record: ChatRecord): AgentKind {
+	if (record.course?.role === "setup") return "setup";
+	if (record.kind === "practice") return "practice";
+	return hasProbeDone(record.messages) ? "teacher" : "prober";
+}
+
+/** Fork plan 05: the book section's size for that agent. It changes while
+ *  the map is written, so it joins the course section's dynamic accounting. */
+function bookPromptTokens(book: ReturnType<typeof sessionBookTurn>, record: ChatRecord): number {
+	if (!book) return 0;
+	const section = bookPromptSection(promptAgentKind(record), book.parts);
+	return section ? Math.ceil((section.length + "\n\n---\n\n".length) / 4) : 0;
 }
 
 /**
@@ -241,6 +260,8 @@ export async function handleChatInput(
 	// A unit session's course section, composed fresh from the course
 	// record for this request (fork plan 04; undefined elsewhere).
 	let unitCourse = unitTurnCourse(record);
+	// Fork plan 05: the session's book, composed fresh for this request too.
+	let sessionBook = sessionBookTurn(record);
 
 	const capturedSession = { createdAt: record.createdAt, kind: record.kind };
 	const freshSubmission = input.type === "text" || input.type === "thinking" || input.type === "answer" || input.type === "plugin-question-answer" || input.type === "plugin-problem-submission";
@@ -384,8 +405,11 @@ export async function handleChatInput(
 	const thresholdTokens = effectiveThresholdTokens(effective.compaction?.thresholdTokens, contextWindow);
 	// A unit's course section rides the system prompt too (fork plan 04).
 	let courseSectionTokens = coursePromptTokens(unitCourse, hasProbeDone(record.messages));
-	let systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens;
-	let dynamicPrompt = unitCourse ? dynamicPromptEstimate(chatId, courseSectionTokens) : undefined;
+	// The book section rides after it (fork plan 05); both change between
+	// turns, so their sum is the dynamic part.
+	let bookSectionTokens = bookPromptTokens(sessionBook, record);
+	let systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens + bookSectionTokens;
+	let dynamicPrompt = unitCourse || bookSectionTokens > 0 ? dynamicPromptEstimate(chatId, courseSectionTokens + bookSectionTokens) : undefined;
 	const estimateModel = effective.compaction.includeReasoning ? conversationEngine.model : undefined;
 	const fitsSideContext = (messages: readonly LhMessage[]) => {
 		const live = messages.filter((message) => (message as { role: string }).role !== "system");
@@ -468,11 +492,19 @@ export async function handleChatInput(
 		if (finalClosed) return Response.json({ error: finalClosed.error }, { status: finalClosed.status });
 		const latestCourse = unitTurnCourse(record);
 		const latestTokens = coursePromptTokens(latestCourse, hasProbeDone(record.messages));
-		if (latestCourse?.context === unitCourse?.context && latestTokens === courseSectionTokens) break;
+		const latestBook = sessionBookTurn(record);
+		const latestBookTokens = bookPromptTokens(latestBook, record);
+		if (latestCourse?.context === unitCourse?.context && latestTokens === courseSectionTokens
+			&& JSON.stringify(latestBook?.parts) === JSON.stringify(sessionBook?.parts) && latestBookTokens === bookSectionTokens) {
+			// Unchanged: keep this pass's book, whose source the tools read.
+			break;
+		}
 		unitCourse = latestCourse;
 		courseSectionTokens = latestTokens;
-		systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens;
-		dynamicPrompt = unitCourse ? dynamicPromptEstimate(chatId, courseSectionTokens) : undefined;
+		sessionBook = latestBook;
+		bookSectionTokens = latestBookTokens;
+		systemPromptTokens = Math.ceil(composeInstructions(record.kind === "practice" ? "practice" : "teacher").length / 4) + courseSectionTokens + bookSectionTokens;
+		dynamicPrompt = unitCourse || bookSectionTokens > 0 ? dynamicPromptEstimate(chatId, courseSectionTokens + bookSectionTokens) : undefined;
 		await compactForRequest();
 	}
 	// Final admission seam: every image/preflight await is over. Resolve via
@@ -714,6 +746,7 @@ export async function handleChatInput(
 	// turn, so the latest execution replaces that raw id's mapping.
 	const toolCallIds = new Map<string, string>();
 	const turnCourse = unitCourse;
+	const turnBook = sessionBook;
 	const agentOpts: AgentBuildOptions = {
 		pluginContributions,
 		engine,
@@ -773,6 +806,8 @@ export async function handleChatInput(
 			...turnCourse,
 			proposeCourseChanges: (proposal, toolCallId) => turnCourse.proposeCourseChanges(proposal, toolCallIds.get(toolCallId) ?? toolCallId),
 		} } : {}),
+		// Fork plan 05 item 4: the book section and, when it can be read, the tools.
+		...(turnBook ? { book: turnBook } : {}),
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher
@@ -930,7 +965,7 @@ export async function handleChatInput(
 				// merely because a local/provider refusal settled the running turn.
 				const admittedMessages = turnMessages.filter((message) => !tentativeSideIds.has((message as LhMessage).id) || admittedSideIds.has((message as LhMessage).id));
 				const stamped = persistTurn(stores.chatStore, chatId, persistBaseCount, admittedMessages, isAborted);
-				if (unitCourse && (!requestCycle || requestCycle.dispatched)) recordDynamicPromptUsage(chatId, courseSectionTokens, stamped);
+				if ((unitCourse || bookSectionTokens > 0) && (!requestCycle || requestCycle.dispatched)) recordDynamicPromptUsage(chatId, courseSectionTokens + bookSectionTokens, stamped);
 				noteSteersDurable(chatId, stores.chatStore.getChat(chatId)?.messages ?? stamped);
 				// usage log append (idempotent per turn id) — the stats bar
 				// refolds this on the client after the turn settles. The
@@ -1005,6 +1040,7 @@ export async function handleChatInput(
 						if (!freshRecord) return null;
 						const freshCourse = unitTurnCourse(freshRecord);
 						const freshCourseTokens = coursePromptTokens(freshCourse, hasProbeDone(freshRecord.messages));
+						const freshBookTokens = bookPromptTokens(sessionBookTurn(freshRecord), freshRecord);
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,
@@ -1016,8 +1052,8 @@ export async function handleChatInput(
 								fresh.compaction?.thresholdTokens,
 								catalogContextLimits().get(kickModelId),
 							),
-							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4) + freshCourseTokens,
-							dynamicPrompt: freshCourse ? dynamicPromptEstimate(chatId, freshCourseTokens) : undefined,
+							systemPromptTokens: Math.ceil(composeInstructions(freshRecord.kind === "practice" ? "practice" : "teacher").length / 4) + freshCourseTokens + freshBookTokens,
+							dynamicPrompt: freshCourse || freshBookTokens > 0 ? dynamicPromptEstimate(chatId, freshCourseTokens + freshBookTokens) : undefined,
 						};
 					}, chatId);
 			},

@@ -22,3 +22,11 @@ it("development SSR renders Chat and its pending dock with sealed React refs", (
 	assert.ok(html.includes("An arrow represents a vector."));
 	assert.ok(html.includes("Describe this vector."));
 });
+
+it("a session with a book shows its chip in the top bar (fork plan 05)", () => {
+	const router = { bfcacheId: "fixture", back() {}, forward() {}, refresh() {}, hmrRefresh() {}, push() {}, replace() {}, async prefetch() {} };
+	const render = (book?: { bookId: string; title: string }) => renderToStaticMarkup(<AppRouterContext.Provider value={router}><PathnameContext.Provider value="/chat/ssr"><InteractionLayersProvider><ServerEventsProvider><Chat chatId="ssr" title="SSR lesson" initialMessages={[]} book={book} /></ServerEventsProvider></InteractionLayersProvider></PathnameContext.Provider></AppRouterContext.Provider>);
+	const html = render({ bookId: "book_a", title: "Phenomenology of Spirit" });
+	assert.ok(html.includes('data-testid="book-chip"') && html.includes('href="/books/book_a"') && html.includes(">Phenomenology of Spirit<"));
+	assert.ok(!render().includes('data-testid="book-chip"'));
+});

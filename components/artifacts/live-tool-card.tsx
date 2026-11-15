@@ -32,11 +32,14 @@ export function LiveToolCard({ part }: ArtifactPartProps) {
 	const tool = p.type.replace(/^tool-/, "");
 	const inp = (p.input ?? {}) as Record<string, unknown>;
 	// The headline argument (ToolCallCard's rule, shown as given): path for
-	// read/ls, pattern for find/grep, session for list_propositions.
+	// read/ls, pattern for find/grep, session for list_propositions, and
+	// the location or query for the book tools.
 	let arg = "";
 	if (typeof inp.path === "string" && inp.path) arg = inp.path;
 	else if (typeof inp.pattern === "string" && inp.pattern) arg = inp.pattern;
 	else if (typeof inp.session === "string" && inp.session) arg = inp.session;
+	else if (typeof inp.at === "string" && inp.at) arg = inp.at;
+	else if (typeof inp.query === "string" && inp.query) arg = inp.query;
 
 	const hasInput = p.input != null && Object.keys(inp).length > 0;
 

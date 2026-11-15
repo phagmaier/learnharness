@@ -39,6 +39,9 @@ function headlineArg(tool: string, input: unknown): string {
 	if (tool === "list_propositions" && typeof inp.session === "string" && inp.session.length > 0) {
 		return inp.session;
 	}
+	// The book tools (fork plan 05): the location, or the search query.
+	if (typeof inp.at === "string" && inp.at.length > 0) return inp.at;
+	if (tool === "search_book" && typeof inp.query === "string") return inp.query;
 	return "";
 }
 

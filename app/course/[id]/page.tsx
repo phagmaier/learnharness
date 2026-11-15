@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { CourseOverview } from "@/components/course-overview";
-import { isCourseRefusal, syncCourseEvidence } from "@/src/server";
+import { courseBookView, isCourseRefusal, syncCourseEvidence } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -18,5 +18,5 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
 			</div>
 		);
 	}
-	return <CourseOverview key={course.id} initialCourse={course} />;
+	return <CourseOverview key={course.id} initialCourse={course} book={courseBookView(course.book)} />;
 }

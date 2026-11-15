@@ -1,7 +1,7 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isCourseRefusal, isTurnRunning, listChats, stampSessionModel, stores, titleFromPrompt, unitPracticeStart } from "@/src/server";
-import type { ChatListItem } from "@/src/core";
+import { bookLinkForNewSession, compactionInFlight, createChat, isCourseRefusal, isTurnRunning, listChats, stampSessionModel, stores, titleFromPrompt, unitPracticeStart } from "@/src/server";
+import type { ChatBookLink, ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
  *  question) + live liveness — a running turn marks the session busy
@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; course?: unknown };
+	const body = (await req.json().catch(() => ({}))) as { title?: unknown; kind?: unknown; graphContext?: unknown; course?: unknown; book?: unknown };
 	const title = typeof body.title === "string" ? body.title : "";
 	// Practice sessions (owner, 2026-10-04): kind "practice" marks the
 	// record — the practice agent + its tools from turn 1, no extraction.
@@ -35,7 +35,19 @@ export async function POST(req: Request) {
 		? unitPracticeStart(typeof courseBody.courseId === "string" ? courseBody.courseId : "", typeof courseBody.unitId === "string" ? courseBody.unitId : "")
 		: null;
 	if (unitPractice && isCourseRefusal(unitPractice)) return Response.json({ error: unitPractice.error }, { status: unitPractice.status });
-	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, setup ? { role: "setup" } : unitPractice?.link);
+	// Fork plan 05 item 4: a Teach session or course setup may start with one
+	// library book whose contents are accepted; a setup keeps its mode.
+	// Practice sessions never have one (a unit's practice uses its course's).
+	let book: ChatBookLink | undefined;
+	if (body.book !== undefined && body.book !== null) {
+		if (kind === "practice") return Response.json({ error: "Practice sessions can't have a book." }, { status: 400 });
+		const attached = bookLinkForNewSession(body.book, setup);
+		// A book that can't be attached (gone, in review, unreadable) is named
+		// so the composer can say why instead of offering a retry that fails.
+		if (!attached.ok) return Response.json({ error: attached.error, ...(attached.status === 400 ? {} : { code: "book-unavailable" }) }, { status: attached.status });
+		book = attached.link;
+	}
+	const chat = createChat(titleFromPrompt(title || "Untitled session"), kind, setup ? { role: "setup" } : unitPractice?.link, book);
 	// PER-SESSION MODELS (owner, 2026-09-28): a session owns its model +
 	// thinking level from birth — stamped verbatim from the STRONG slot,
 	// the new-session default. From here the strong slot never reaches

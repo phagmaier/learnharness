@@ -137,6 +137,8 @@ export function createCourseFromSetup(body: unknown): { ok: true; courseId: stri
 	const now = new Date().toISOString();
 	const course: CourseRecord = {
 		id: newCourseId(), title, goal, createdAt: now, updatedAt: now, setupChatId,
+		// Fork plan 05: the book chosen when the setup started, with its mode.
+		...(record.book ? { book: { bookId: record.book.bookId, mode: record.book.mode ?? "follow" } } : {}),
 		units, proposals: [], evidence: [],
 	};
 	courseStore.create(course);

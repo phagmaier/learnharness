@@ -7,6 +7,9 @@
  * contents" recovers from a failed read by Try again and on reconnect; and
  * the book page keeps refreshing while the delete dialog merely stands
  * open, holding refreshes off only during the delete request itself.
+ * Item 4: the composers' Book control reads the library when opened, picks
+ * a ready book (not one in review), and in Course mode keeps the chosen
+ * follow/reference mode.
  */
 import React, { act } from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -22,6 +25,8 @@ import type { BookPageBook } from "../components/book-view.ts";
 import { InteractionLayersProvider } from "../components/interaction-layers.tsx";
 import { ServerEventsProvider, type NotifySource } from "../components/server-events.tsx";
 import { bookTextWindow } from "../src/core/book.ts";
+import { BookPickerControl, type ComposerBook, type ComposerBookMode } from "../components/book-picker.tsx";
+import type { LibraryBook } from "../components/book-view.ts";
 import { installModalDom } from "./modal-dom.ts";
 type BookBlock = import("../src/core/contracts.ts").BookBlock;
 type BookNode = import("../src/core/contracts.ts").BookNode;
@@ -291,5 +296,63 @@ describe("the book page while deleting", () => {
 		await act(async () => { events.emit("books-changed", { bookId: "book_a" }); });
 		assert.equal(bookReads(), reads);
 		assert.deepEqual(pushed, ["/books"]);
+	});
+});
+
+// ─── item 4: the Book control ───────────────────────────────────────────────
+
+describe("the Book control", () => {
+	const library: LibraryBook[] = [
+		{ id: "b_ready", title: "Phenomenology of Spirit", author: "Hegel", format: "pdf", importedAt: "2026-11-14T10:00:00.000Z", pageCount: 610, import: { status: "ready" }, mapWriter: { status: "ready", done: 808, total: 808 } },
+		{ id: "b_review", title: "Science of Logic", format: "epub", importedAt: "2026-11-13T10:00:00.000Z", import: { status: "review" }, mapWriter: { status: "waiting", done: 0, total: 0 } },
+	];
+	let chosen: { book: ComposerBook | null; mode: ComposerBookMode } = { book: null, mode: "follow" };
+	function Harness({ mode }: { mode: "teach" | "course" }) {
+		const [book, setBook] = React.useState<ComposerBook | null>(null);
+		const [bookMode, setBookMode] = React.useState<ComposerBookMode>("follow");
+		chosen = { book, mode: bookMode };
+		return <BookPickerControl book={book} onChange={setBook} mode={mode} bookMode={bookMode} onModeChange={setBookMode} />;
+	}
+	const label = () => q('[data-testid="book-picker-label"]')?.textContent;
+
+	it("reads the library when opened and picks a ready book, never one in review", async () => {
+		await mount(<Harness mode="teach" />);
+		assert.equal(label(), "Book");
+		assert.equal(requests.length, 0, "nothing is read until the menu opens");
+		await click('[data-testid="book-picker"]');
+		assert.ok(q('[data-testid="book-picker-menu"]'));
+		await answer(urlHas("/api/books"), Response.json({ books: library, unreadable: [] }));
+		await click('[data-testid="book-picker-option"][data-book="b_review"]');
+		assert.equal(chosen.book, null, "a book in review can't be chosen");
+		await click('[data-testid="book-picker-option"][data-book="b_ready"]');
+		assert.deepEqual(chosen.book, { bookId: "b_ready", title: "Phenomenology of Spirit" });
+		assert.equal(label(), "Phenomenology of Spirit");
+		assert.equal(q('[data-testid="book-picker-menu"]'), null, "the menu closes");
+		assert.equal(q('[data-testid="book-mode"]'), null, "no mode outside Course mode");
+		await click('[data-testid="book-picker-clear"]');
+		assert.equal(chosen.book, null);
+		assert.equal(label(), "Book");
+	});
+
+	it("in Course mode keeps the chosen mode, following by default", async () => {
+		await mount(<Harness mode="course" />);
+		await click('[data-testid="book-picker"]');
+		await answer(urlHas("/api/books"), Response.json({ books: library, unreadable: [] }));
+		await click('[data-testid="book-picker-option"][data-book="b_ready"]');
+		assert.equal(q('[data-testid="book-mode-follow"]')?.getAttribute("aria-checked"), "true");
+		await click('[data-testid="book-mode-reference"]');
+		assert.deepEqual(chosen, { book: { bookId: "b_ready", title: "Phenomenology of Spirit" }, mode: "reference" });
+		assert.equal(q('[data-testid="book-mode-reference"]')?.getAttribute("aria-checked"), "true");
+	});
+
+	it("says so when the library can't be read, and reads it again when opened again", async () => {
+		await mount(<Harness mode="teach" />);
+		await click('[data-testid="book-picker"]');
+		await answer(urlHas("/api/books"), new Error("offline"));
+		assert.equal(q('[data-testid="book-picker-error"]')?.textContent, "The library couldn't be read.");
+		await click('[data-testid="book-picker"]');
+		await answer(urlHas("/api/books"), Response.json({ books: library, unreadable: [] }));
+		assert.equal(document.querySelectorAll('[data-testid="book-picker-option"]').length, 2);
+		assert.equal(q('[data-testid="book-picker-error"]'), null);
 	});
 });

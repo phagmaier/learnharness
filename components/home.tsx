@@ -8,6 +8,7 @@ import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { BookPickerControl, composerBookBody, type ComposerBook, type ComposerBookMode } from "@/components/book-picker";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -18,7 +19,7 @@ import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { AttachFilesButton } from "@/components/attach-files-button";
-import { modePlaceholder, SessionStarter } from "@/components/start-session";
+import { modePlaceholder, SessionStarter, SessionStartRefusal } from "@/components/start-session";
 import type { TurnUsage } from "@/src/core";
 
 /**
@@ -70,7 +71,8 @@ export function Home({
 	const [busy, setBusy] = useState(false);
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
-	const [startError, setStartError] = useState(false);
+	// The failure notice: the generic retry text, or why the book was refused.
+	const [startError, setStartError] = useState<string | false>(false);
 	/* Run end focuses the topic input (owner, 2026-10-01): the hands are on
 	 * the keyboard from the stop. Falling edge only; this surface's only
 	 * dictation target IS this textarea, so no case-split is needed. */
@@ -105,6 +107,10 @@ export function Home({
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
+	// Fork plan 05: the Book control's choice survives mode switches, like
+	// the picks; only Teach and Course sends carry it.
+	const [book, setBook] = useState<ComposerBook | null>(null);
+	const [bookMode, setBookMode] = useState<ComposerBookMode>("follow");
 
 	/* FINISH DICTATION FIRST (owner, 2026-10-01): Enter may arrive while a
 	 * run is live with the topic still deferred in the run's buffer — stop
@@ -158,12 +164,13 @@ export function Home({
 				// Fork plan 04: a course starts with its setup session.
 				...(mode === "course" ? { course: { role: "setup" } } : {}),
 				...(practiceProps.length > 0 ? { graphContext: { propositions: practiceProps } } : {}),
+				...composerBookBody(mode, book, bookMode),
 			}, fetch, JSON.stringify(catalog?.slots.strong));
 			router.push(target);
-		} catch {
+		} catch (error) {
 			startingRef.current = false;
 			setBusy(false);
-			setStartError(true);
+			setStartError(error instanceof SessionStartRefusal ? error.message : OPENING_PROMPT_FAILURE);
 		}
 	};
 
@@ -228,6 +235,9 @@ export function Home({
 								onClear={() => setPracticeProps([])}
 							/>
 						)}
+						book={mode !== "practice" && (
+							<BookPickerControl book={book} onChange={setBook} mode={mode} bookMode={bookMode} onModeChange={setBookMode} disabled={busy} />
+						)}
 						setup={zeroKeys ? (
 							<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 						) : (
@@ -243,7 +253,7 @@ export function Home({
 							)
 						)}
 					/>
-					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+					{startError && <p role="alert" className="mb-2 text-sm text-destructive">{startError}</p>}
 					<form
 						data-attachment-composer=""
 						className="flex items-end gap-1.5 rounded-2xl border bg-card p-1.5 shadow-lg"

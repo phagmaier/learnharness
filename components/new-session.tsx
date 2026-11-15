@@ -15,8 +15,9 @@ import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill 
 import { StatsBar } from "@/components/stats-bar";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { ComposerActions, NodePickerControl, UnitAttachmentChip } from "@/components/composer-actions";
+import { BookPickerControl, composerBookBody, type ComposerBook, type ComposerBookMode } from "@/components/book-picker";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
-import { modePlaceholder, SessionStarter } from "@/components/start-session";
+import { modePlaceholder, SessionStarter, SessionStartRefusal } from "@/components/start-session";
 import { unitPracticePrompt, type ChatSettings, type GraphSnapshot } from "@/src/core";
 
 /** The draft's pick set (owner round 10): the SAME shape the home pick
@@ -55,6 +56,8 @@ export async function startDraftSession(
 	starter = new SessionStarter(),
 	settingsIdentity?: string,
 	unit?: Pick<DraftUnit, "courseId" | "unitId"> | null,
+	/** Fork plan 05: the Book control's choice (ignored in practice). */
+	book: { book: ComposerBook | null; mode: ComposerBookMode } = { book: null, mode: "follow" },
 ): Promise<string | null> {
 	const t = text.trim();
 	if (!t) return null;
@@ -69,7 +72,9 @@ export async function startDraftSession(
 			? unit
 				? { title: t, kind: "practice", course: { role: "practice", courseId: unit.courseId, unitId: unit.unitId } }
 				: { title: t, kind: "practice", ...(picks && picks.length > 0 ? { graphContext: { propositions: picks } } : {}) }
-			: mode === "course" ? { title: t, course: { role: "setup" } } : { title: t },
+			: mode === "course"
+				? { title: t, course: { role: "setup" }, ...composerBookBody("course", book.book, book.mode) }
+				: { title: t, ...composerBookBody("teach", book.book, book.mode) },
 		fetchLike,
 		settingsIdentity,
 	);
@@ -93,13 +98,18 @@ export function DraftShell({
 	onClearPicks,
 	unit = null,
 	onClearUnit,
+	book = null,
+	onBookChange,
+	bookMode = "follow",
+	onBookModeChange,
 	overlay,
 }: {
 	busy: boolean;
 	text: string;
 	onChange: (v: string) => void;
 	onSend: () => void;
-	startError?: boolean;
+	/** true shows the generic retry notice; a string (a refused book) shows itself. */
+	startError?: boolean | string;
 	/** The practice draft (owner, 2026-10-04): ?mode=practice — the
 	 *  created session carries kind:"practice" and the copy changes
 	 *  (the practice agent opens; no probing). */
@@ -120,6 +130,12 @@ export function DraftShell({
 	 *  chip, in the node picker's place; Clear detaches it. */
 	unit?: Pick<DraftUnit, "number" | "title"> | null;
 	onClearUnit?: () => void;
+	/** Fork plan 05: the Book control (Teach and Course drafts), its choice
+	 *  lifted into NewSession like the picks. Absent handler = no control. */
+	book?: ComposerBook | null;
+	onBookChange?: (book: ComposerBook | null) => void;
+	bookMode?: ComposerBookMode;
+	onBookModeChange?: (mode: ComposerBookMode) => void;
 	/** THE PICKER SLOT (owner round 10b): the chain-table overlay hosts
 	 *  INSIDE the content column's relative container — the same law as
 	 *  the graph view (the overlay fills its column, never the sidebar).
@@ -213,9 +229,12 @@ export function DraftShell({
 									) : (picks.length > 0 || mode === "practice") && (
 										<NodePickerControl count={picks.length} onOpen={onOpenPicker} onClear={onClearPicks} />
 									)}
+									book={mode !== "practice" && onBookChange && (
+										<BookPickerControl book={book} onChange={onBookChange} mode={mode} bookMode={bookMode} onModeChange={(next) => onBookModeChange?.(next)} disabled={busy} />
+									)}
 									setup={setupCta}
 								/>
-								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
+								{startError && <p role="alert" className="pointer-events-auto mb-2 text-sm text-destructive">{startError === true ? OPENING_PROMPT_FAILURE : startError}</p>}
 								<div data-attachment-composer="" className="pointer-events-auto overflow-hidden rounded-2xl border bg-card shadow-lg">
 									<Composer
 										busy={busy}
@@ -286,7 +305,7 @@ export function NewSession({ initialConfigured, mode = "teach", initialUnit = nu
 	const [busy, setBusy] = useState(false);
 	const startingRef = useRef(false);
 	const starterRef = useRef(new SessionStarter());
-	const [startError, setStartError] = useState(false);
+	const [startError, setStartError] = useState<boolean | string>(false);
 	// THE PICK BAR (owner round 10): the draft's lifted pick set + the
 	// snapshot the standalone chain-table picker reads. Lazy — the graph
 	// is fetched on FIRST open only, then reused.
@@ -298,6 +317,12 @@ export function NewSession({ initialConfigured, mode = "teach", initialUnit = nu
 	};
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+	// Fork plan 05: the Book control's choice, mirrored for the send.
+	const [book, setBook] = useState<ComposerBook | null>(null);
+	const [bookMode, setBookMode] = useState<ComposerBookMode>("follow");
+	const bookRef = useRef<{ book: ComposerBook | null; mode: ComposerBookMode }>({ book: null, mode: "follow" });
+	const applyBook = (next: ComposerBook | null) => { bookRef.current = { ...bookRef.current, book: next }; setBook(next); };
+	const applyBookMode = (next: ComposerBookMode) => { bookRef.current = { ...bookRef.current, mode: next }; setBookMode(next); };
 	const openPicker = () => {
 		if (snapshot) {
 			setPickerOpen(true);
@@ -348,15 +373,15 @@ export function NewSession({ initialConfigured, mode = "teach", initialUnit = nu
 		setBusy(true);
 		setStartError(false);
 		void startDraftSession(draft, fetch, mode === "teach" ? undefined : mode, mode === "practice" ? picksRef.current : undefined,
-			starterRef.current, JSON.stringify(catalog?.slots.strong), mode === "practice" ? unitRef.current : null)
+			starterRef.current, JSON.stringify(catalog?.slots.strong), mode === "practice" ? unitRef.current : null, bookRef.current)
 			.then((target) => {
 				if (target) router.push(target);
 				else { startingRef.current = false; setBusy(false); }
 			})
-			.catch(() => {
+			.catch((error: unknown) => {
 				startingRef.current = false;
 				setBusy(false);
-				setStartError(true);
+				setStartError(error instanceof SessionStartRefusal ? error.message : true);
 			});
 	}, [router, configured, zeroKeys, catalog, mode]);
 
@@ -374,6 +399,10 @@ export function NewSession({ initialConfigured, mode = "teach", initialUnit = nu
 				onClearPicks={() => applyPicks([])}
 				unit={unit}
 				onClearUnit={() => applyUnit(null)}
+				book={book}
+				onBookChange={applyBook}
+				bookMode={bookMode}
+				onBookModeChange={applyBookMode}
 				overlay={
 					// THE PICKER (owner round 10b): hosted INSIDE the content
 					// column — absolute inset-0 resolves to the column's relative

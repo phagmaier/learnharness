@@ -6,9 +6,11 @@
  * contents" in review and after "Not right" (a replacement model candidate
  * included, and a failed read of the candidates); the delete dialog's
  * refusal (an unreadable user unlinked) and confirmation; and the reader's blocks (margin labels, pages, page
- * breaks inside a paragraph, the marked match). Expected wording comes
- * from the plan's Proposed wording, or the agent-selected wording reported
- * with item 3.
+ * breaks inside a paragraph, the marked match). Item 4: the composers'
+ * Book control (which books it offers, its menu, Course mode's switch, what
+ * a start sends) and the top bar's book chip. Expected wording comes from
+ * the plan's Proposed wording, or the agent-selected wording reported with
+ * items 3 and 4.
  */
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
@@ -22,7 +24,12 @@ import { BookFacts } from "../components/book-page.tsx";
 import { ContentsReviewBody, ContentsTree, modelPassLabel } from "../components/book-contents-review.tsx";
 import { DeleteBookBody } from "../components/delete-book-dialog.tsx";
 import { ReaderBlock, ReaderContents, ReaderText } from "../components/book-reader.tsx";
-import { blockSegments, contentsRows, marginLabels, methodChoiceLine, type BookPageBook, type LibraryBook } from "../components/book-view.ts";
+import { blockSegments, bookPickerEntries, contentsRows, marginLabels, methodChoiceLine, type BookPageBook, type LibraryBook } from "../components/book-view.ts";
+import { BookModeSwitch, BookPickerMenuBody, composerBookBody } from "../components/book-picker.tsx";
+import { BookChip } from "../components/book-chip.tsx";
+import { DraftShell, startDraftSession } from "../components/new-session.tsx";
+import { SessionStartRefusal } from "../components/start-session.ts";
+import { renderWithInteractionLayers } from "./interaction-layer-render.tsx";
 type BookNode = import("../src/core/contracts.ts").BookNode;
 type BookCandidate = import("../src/core/contracts.ts").BookCandidate;
 
@@ -288,5 +295,89 @@ describe("the reader", () => {
 		const flat = doc(<ReaderContents nodes={NODES.slice(1, 4).map(({ parentId: _p, ...node }) => ({ ...node, level: 1 }))} onOpen={() => {}} />);
 		assert.equal(flat.querySelectorAll('[data-testid="reader-entry"]').length, 3);
 		assert.equal(text(flat, '[data-testid="reader-summary"]'), "Being turns into nothing.");
+	});
+});
+
+// ─── item 4: attaching a book ───────────────────────────────────────────────
+
+describe("the Book control", () => {
+	it("offers ready books, lists one in review as unavailable, and leaves out the rest", () => {
+		const books: LibraryBook[] = [
+			{ ...base, id: "b_ready", title: "Ready" },
+			{ ...base, id: "b_review", title: "In review", import: { status: "review" } },
+			{ ...base, id: "b_importing", title: "Importing", import: { status: "importing" } },
+			{ ...base, id: "b_failed", title: "Failed", import: { status: "failed", error: "x" } },
+			{ ...base, id: "b_short", title: "Short", format: "markdown", author: undefined, pageCount: undefined, sections: 4, mapWriter: { status: "not-needed", done: 0, total: 0 } },
+		];
+		assert.deepEqual(bookPickerEntries(books), [
+			{ id: "b_ready", title: "Ready", facts: "Hegel · PDF · 610 pages" },
+			{ id: "b_review", title: "In review", facts: "Hegel · PDF · 610 pages", unavailable: "Check its contents first" },
+			{ id: "b_short", title: "Short", facts: "Markdown · 4 sections" },
+		]);
+	});
+
+	it("renders the menu's books, a book in review disabled, and the empty and failed states", () => {
+		const root = doc(<BookPickerMenuBody entries={bookPickerEntries([{ ...base, title: "Ready" }, { ...base, id: "b_review", title: "In review", import: { status: "review" } }])} error={null} onPick={() => {}} />);
+		const options = [...root.querySelectorAll('[data-testid="book-picker-option"]')];
+		assert.deepEqual(options.map((o) => [o.getAttribute("data-book"), o.textContent, o.hasAttribute("disabled")]), [
+			["book_a", "ReadyHegel · PDF · 610 pages", false],
+			["b_review", "In reviewCheck its contents first", true],
+		]);
+		const empty = doc(<BookPickerMenuBody entries={[]} error={null} onPick={() => {}} />);
+		assert.equal(text(empty, '[data-testid="book-picker-empty"]'), "No books ready yet. Import one in Books.");
+		assert.equal(empty.querySelector('[data-testid="book-picker-empty"] a')?.getAttribute("href"), "/books");
+		assert.equal(text(doc(<BookPickerMenuBody entries={null} error="The library couldn't be read." onPick={() => {}} />), '[data-testid="book-picker-error"]'), "The library couldn't be read.");
+		const modes = doc(<BookModeSwitch value="reference" onChange={() => {}} />);
+		assert.deepEqual([...modes.querySelectorAll('[role="radio"]')].map((b) => [b.textContent, b.getAttribute("aria-checked")]), [["Follow its structure", "false"], ["Reference only", "true"]]);
+	});
+
+	it("sends the book with a Teach or Course start, with Course mode's choice, and never with Practice", async () => {
+		const book = { bookId: "book_a", title: "Phenomenology" };
+		assert.deepEqual(composerBookBody("teach", book, "reference"), { book: { bookId: "book_a" } });
+		assert.deepEqual(composerBookBody("course", book, "reference"), { book: { bookId: "book_a", mode: "reference" } });
+		assert.deepEqual(composerBookBody("practice", book, "follow"), {});
+		assert.deepEqual(composerBookBody("course", null, "follow"), {});
+		const calls: unknown[] = [];
+		const storage = new Map<string, string>();
+		Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v); }, removeItem: (k: string) => { storage.delete(k); } } });
+		const f = (async (_url: string, init?: RequestInit) => { calls.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ id: "chat_new" })); }) as typeof fetch;
+		try {
+			await startDraftSession("read Hegel", f, undefined, undefined, undefined, undefined, null, { book, mode: "reference" });
+			await startDraftSession("a Hegel course", f, "course", undefined, undefined, undefined, null, { book, mode: "follow" });
+			await startDraftSession("practice Hegel", f, "practice", [], undefined, undefined, null, { book, mode: "follow" });
+		} finally { Reflect.deleteProperty(globalThis, "sessionStorage"); }
+		assert.deepEqual(calls, [
+			{ title: "read Hegel", book: { bookId: "book_a" } },
+			{ title: "a Hegel course", course: { role: "setup" }, book: { bookId: "book_a", mode: "follow" } },
+			{ title: "practice Hegel", kind: "practice" },
+		]);
+	});
+});
+
+describe("the book chip", () => {
+	it("shows the book's title and opens its page", () => {
+		const root = doc(<BookChip book={{ bookId: "book_a", title: "Phenomenology of Spirit" }} />);
+		const chip = root.querySelector('[data-testid="book-chip"]')!;
+		assert.equal(chip.getAttribute("href"), "/books/book_a");
+		assert.equal(chip.textContent, "Phenomenology of Spirit");
+		assert.equal(chip.getAttribute("aria-label"), "Book: Phenomenology of Spirit");
+	});
+});
+
+describe("a start refused for its book", () => {
+	it("says why and what to do, while other failures keep the generic retry notice", async () => {
+		const storage = new Map<string, string>();
+		Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => { storage.set(k, v); }, removeItem: (k: string) => { storage.delete(k); } } });
+		const answering = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+		const book = { book: { bookId: "book_a", title: "Phenomenology" }, mode: "follow" as const };
+		try {
+			await assert.rejects(startDraftSession("read", answering(404, { error: "This book is no longer in the library.", code: "book-unavailable" }), undefined, undefined, undefined, undefined, null, book),
+				(error: unknown) => error instanceof SessionStartRefusal && error.message === "This book is no longer in the library. Choose another book, or clear it.");
+			await assert.rejects(startDraftSession("read", answering(500, { error: "boom" }), undefined, undefined, undefined, undefined, null, book),
+				(error: unknown) => !(error instanceof SessionStartRefusal) && error instanceof Error && error.message === "Couldn’t open the session. Your message is still here. Try sending again.");
+		} finally { Reflect.deleteProperty(globalThis, "sessionStorage"); }
+		const shell = (startError: boolean | string) => text(parseHTML(`<html><body>${renderWithInteractionLayers(<DraftShell busy={false} text="read" onChange={() => {}} onSend={() => {}} startError={startError} />)}</body></html>`).document, '[role="alert"]');
+		assert.equal(shell("Check this book's contents first. Choose another book, or clear it."), "Check this book's contents first. Choose another book, or clear it.");
+		assert.equal(shell(true), "Couldn’t open the session. Your message is still here. Try sending again.");
 	});
 });

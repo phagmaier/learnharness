@@ -653,12 +653,16 @@ export function modelCandidate(blocks: readonly BookBlock[], headings: readonly 
 export type BookLocation =
 	| { ok: true; kind: "nodes"; range: BookRange; firstBlock: number; lastBlock: number; label: string }
 	| { ok: true; kind: "pages"; firstBlock: number; lastBlock: number; label: string }
+	| { ok: true; kind: "blocks"; firstBlock: number; lastBlock: number; label: string }
 	| { ok: false; error: string };
 
 const RANGE_SEPARATOR = /[\u2013\u2014-]|\s+to\s+/g;
 const PAGE_REF = /^(?:pp?\.\s*|pp?\s+|pages?\s+)([0-9]+|[ivxlcdm]+)(?:\s*[\u2013\u2014-]\s*([0-9]+|[ivxlcdm]+))?$/i;
+/** Block numbers (item 4): where a long read_section continues. */
+const BLOCK_REF = /^blocks?\s+([0-9]+)(?:\s*[\u2013\u2014-]\s*([0-9]+))?$/i;
 
-function displayNode(node: BookNode): string {
+/** A node as lines show it: its title when that starts with the label, else label and title. */
+export function displayNode(node: BookNode): string {
 	if (!node.title) return node.label;
 	if (node.title === node.label || node.title.startsWith(node.label)) return node.title;
 	return `${node.label} ${node.title}`;
@@ -742,11 +746,20 @@ function pageBlocks(blocks: readonly BookBlock[], from: string, to: string): { f
 /**
  * Resolve a location as agents and links write it: a node id ("n12"), a
  * label ("§187", "IV", "Chapter 2"), a title, a range of either ("§178–§196",
- * "§178-196", "n3 to n9"), or pages ("p. 114", "pp. 114–116").
+ * "§178-196", "n3 to n9"), pages ("p. 114", "pp. 114–116"), or block
+ * numbers ("blocks 341–512", which a long read_section names to continue).
  */
 export function resolveBookLocation(nodes: readonly BookNode[], blocks: readonly BookBlock[], input: string): BookLocation {
 	const text = input.trim();
 	if (!text) return { ok: false, error: "Give a location: a section label or id from the map, or pages (\"p. 114\")." };
+	const block = text.match(BLOCK_REF);
+	if (block) {
+		const first = Number(block[1]);
+		const last = block[2] === undefined ? first : Number(block[2]);
+		if (last < first) return { ok: false, error: `The blocks end (${last}) before they start (${first}).` };
+		if (last >= blocks.length) return { ok: false, error: `This book's blocks run from 0 to ${blocks.length - 1}.` };
+		return { ok: true, kind: "blocks", firstBlock: first, lastBlock: last, label: first === last ? `block ${first}` : `blocks ${first}–${last}` };
+	}
 	const page = text.match(PAGE_REF);
 	if (page) {
 		const from = page[1]!;
@@ -833,9 +846,19 @@ function renderToDepth(nodes: readonly BookNode[], depth: number, withTerms: boo
 	return lines;
 }
 
+/** How a set of nodes fitted its budget. `collapsed` are the shown nodes
+ *  whose subsections were left out (counted instead); `hidden` are the
+ *  nodes cut from the end when even the top level didn't fit. */
+export interface FittedBookNodes {
+	text: string;
+	complete: boolean;
+	collapsed: BookNode[];
+	hidden: BookNode[];
+}
+
 /** The deepest rendering that fits the budget; at worst the top level, cut short. */
-function fitted(nodes: readonly BookNode[], budgetTokens: number, withTerms: boolean): string {
-	if (nodes.length === 0) return "";
+export function fitBookNodes(nodes: readonly BookNode[], budgetTokens: number, withTerms: boolean): FittedBookNodes {
+	if (nodes.length === 0) return { text: "", complete: true, collapsed: [], hidden: [] };
 	const budget = budgetTokens * BOOK_CHARS_PER_TOKEN;
 	// A selected paragraph and a selected chapter are both roots, regardless
 	// of their levels in the whole book.
@@ -845,12 +868,19 @@ function fitted(nodes: readonly BookNode[], budgetTokens: number, withTerms: boo
 		depths.set(node.id, level);
 		return { ...node, level };
 	});
+	const original = new Map(nodes.map((node) => [node.id, node]));
 	const maxDepth = Math.max(...depths.values());
+	const counts = descendantCounts(relativeNodes);
 	for (let depth = maxDepth; depth >= 1; depth--) {
 		const lines = renderToDepth(relativeNodes, depth, withTerms);
 		const text = lines.join("\n");
 		if (text.length <= budget || depth === 1) {
-			if (text.length <= budget) return text;
+			const shown = relativeNodes.filter((node) => node.level <= depth);
+			const collapsedOf = (list: typeof shown) => list.filter((node) => node.level === depth && (counts.get(node.id) ?? 0) > 0).map((node) => original.get(node.id)!);
+			if (text.length <= budget) {
+				const collapsed = collapsedOf(shown);
+				return { text, complete: collapsed.length === 0, collapsed, hidden: [] };
+			}
 			const kept: string[] = [];
 			let size = 0;
 			for (const line of lines) {
@@ -859,16 +889,21 @@ function fitted(nodes: readonly BookNode[], budgetTokens: number, withTerms: boo
 				size += line.length + 1;
 			}
 			const notice = `… (${plural(lines.length - kept.length, "more section")}; open them with book_map)`;
-			return kept.length > 0 ? `${kept.join("\n")}\n${notice}` : notice;
+			return {
+				text: kept.length > 0 ? `${kept.join("\n")}\n${notice}` : notice,
+				complete: false,
+				collapsed: collapsedOf(shown.slice(0, kept.length)),
+				hidden: shown.slice(kept.length).map((node) => original.get(node.id)!),
+			};
 		}
 	}
-	return "";
+	return { text: "", complete: true, collapsed: [], hidden: [] };
 }
 
 /** The whole-book outline every turn receives (decision 2): whole levels
  *  from the top down while they fit, deeper ones counted. */
 export function bookOutlineText(nodes: readonly BookNode[], budgetTokens = 3_000): string {
-	return fitted(nodes, budgetTokens, false);
+	return fitBookNodes(nodes, budgetTokens, false).text;
 }
 
 /** The nodes inside some ranges, with their descendants, in map order. */
@@ -887,7 +922,7 @@ export function nodesInRanges(nodes: readonly BookNode[], ranges: readonly BookR
 /** A unit's reading in full detail (decision 2): summaries and key terms
  *  down to the leaves while they fit, one level less otherwise. */
 export function bookDetailText(nodes: readonly BookNode[], ranges: readonly BookRange[], budgetTokens = 4_000): string {
-	return fitted(nodesInRanges(nodes, ranges), budgetTokens, true);
+	return fitBookNodes(nodesInRanges(nodes, ranges), budgetTokens, true).text;
 }
 
 /** "§178–§196 (Lordship and bondage)": a range as the cards show it. */

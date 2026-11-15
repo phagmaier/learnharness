@@ -15,15 +15,27 @@ A chat's book (fork plan 05): standalone Teach sessions and course setups.
 ```ts
 export interface ChatBookLink {
     bookId: string;
+    mode?: "follow" | "reference";
 }
 ```
 
 **Member index** (including nested object members; inherited members are defined in the linked base types):
 
 - [bookId](#chatbooklink-bookid)
+- [mode](#chatbooklink-mode)
 
 ### ChatBookLink bookId
 
 ```ts
 bookId: string;
+```
+
+### ChatBookLink mode
+
+Course setups only: "Follow its structure" or "Reference only", chosen
+with the book and copied into the course when it is created. Teach
+sessions have none.
+
+```ts
+mode?: "follow" | "reference";
 ```

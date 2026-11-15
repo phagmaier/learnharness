@@ -12,6 +12,7 @@ import {
 	type BookWindowRequest,
 } from "../core/book.ts";
 import type { BookBlock, BookNode } from "../core/contracts.ts";
+import type { BookToolSource } from "../agent/tools/book.ts";
 import { bookStore, BookUnreadableError } from "../store/books.ts";
 
 type Refusal = { ok: false; status: number; error: string };
@@ -102,4 +103,17 @@ export function searchBook(bookId: string, query: string, limit = BOOK_SEARCH_LI
 	const book = readable(bookId);
 	if ("ok" in book) return book;
 	return searchBookBlocks(book.blocks, searchable(bookId, book.blocks), book.nodes, query, limit);
+}
+
+/** The book tools' source for one turn (item 4): the text and map read on
+ *  the first call and kept for the turn; search uses the cached form. */
+export function bookToolSource(bookId: string): BookToolSource {
+	let loaded: ReturnType<BookToolSource["load"]> | undefined;
+	return {
+		load: () => loaded ??= (() => {
+			const book = readable(bookId);
+			if ("ok" in book) return { error: book.error };
+			return { nodes: book.nodes, blocks: book.blocks, searchable: () => searchable(bookId, book.blocks) };
+		})(),
+	};
 }

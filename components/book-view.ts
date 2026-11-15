@@ -231,3 +231,30 @@ export function blockEndPage(block: Pick<BookBlock, "page" | "pageLabel" | "brea
 export function blockStartPage(block: Pick<BookBlock, "page" | "pageLabel">): string | undefined {
 	return block.pageLabel ?? (block.page !== undefined ? String(block.page) : undefined);
 }
+
+// ─── the composer's Book control (item 4) ──────────────────────────────────
+
+/** One library book as the composer's Book control lists it. */
+export interface BookPickerEntry {
+	id: string;
+	title: string;
+	/** "G. Tester · PDF · 610 pages" */
+	facts: string;
+	/** Absent when the book can be attached. */
+	unavailable?: string;
+}
+
+export const BOOK_PICKER_CHECK_FIRST = "Check its contents first";
+
+/**
+ * The books a session can start with (decision 5): those whose import is
+ * ready. A book in review is listed but can't be chosen until its contents
+ * are accepted; importing and failed books aren't listed. Library order.
+ */
+export function bookPickerEntries(books: readonly LibraryBook[]): BookPickerEntry[] {
+	return books.flatMap((book): BookPickerEntry[] => {
+		if (book.import.status === "ready") return [{ id: book.id, title: book.title, facts: bookFactsLine(book) }];
+		if (book.import.status === "review") return [{ id: book.id, title: book.title, facts: bookFactsLine(book), unavailable: BOOK_PICKER_CHECK_FIRST }];
+		return [];
+	});
+}

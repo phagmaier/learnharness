@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { slotsConfigured } from "@/src/core";
-import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, sessionCourseView, turnFailure } from "@/src/server";
+import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, sessionBookView, sessionCourseView, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +27,8 @@ export default async function ChatPage({
 			kind={chat.kind ?? "teach"}
 			// Fork plan 04: the session's course (setup card, closed band).
 			course={sessionCourseView(chat)}
+			// Fork plan 05: the session's book chip.
+			book={sessionBookView(chat)}
 			// Wave D: the record IS native agent history — the client view is
 				// derived app-side (core/view.ts projectView; GET serves the same
 				// native messages).

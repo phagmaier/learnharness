@@ -224,6 +224,23 @@ Fix all six review findings within item 3: the in-use check skipping records it 
 
 *Agent-selected implementation:* the chat and course stores gain a scan of the files that contain a given text (`chatsMentioning`, `mentioning`), which reports unreadable matches and throws when a file can't be opened. A listed unreadable course covers the sessions that name it, as a readable course does. The review shows the book's current map as the found contents (exactly what "Looks right" accepts) and offers every candidate whose contents differ from it, using the server's comparison (`sameBookContents`, now in core). A failed read of the candidates shows its reason with "Try again", and a reconnect reads them again. Jumps and search matches use `around`/`at` windows that keep up to 4 blocks above the target, fewer when those would use up the window. Refreshes are held off only during the delete request, and a refused or failed delete refreshes. Details: [plan 05, item 3 review repairs](plans/05-books.md#item-3-review-repairs-2026-11-14).
 
+### Books checkpoint 1 and item 4 decisions — 2026-11-14, human
+
+*Checkpoint 1:* the look of items 1–3 (the library, "Check the contents" and its alternatives, the garbled refusal, the book page and reader, an app-made book, the delete refusal) and item 3's agent-selected choices are approved. Item 4 may start.
+
+*Where the Book control appears:* in both session composers, the home composer and the `/chat/new` draft (which the sidebar's "+ New session" and "Course" doors open), in their Teach and Course modes, hidden in Practice. The plan named only the home composer.
+
+*Course mode's choice:* a setup session keeps "Follow its structure" or "Reference only" on its own record as `book: { bookId, mode: "follow" | "reference" }`; Teach sessions keep `book: { bookId }`. An additive field; the chat version stays 2. Creating the course copies both into the course's `book`.
+
+*The book section's wording* beyond the approved doctrine and additions, approved as the agent drafted it:
+- A header with the title and author.
+- The citation line: PDFs with the book's own structure, "Cite places as the book does, with the page: "§187 (p. 114)"."; EPUB and text, "Cite places as the book does: "§187"."; app-made parts of a PDF, "Cite places by page: "p. 114". The app divided this book into parts; never cite them."; app-made parts of an EPUB or text, "Cite places by the app's part numbers: "Part 14". The book has no structure of its own." The examples come from the book itself.
+- "The tools take a place as an id or label from the outline ("n52", "§187"), a range ("§178–§196"), or pages ("pp. 114–116").", and while the map is written, "Summaries are still being written; the outline shows those done."
+- The outline under "Outline", and for a unit of a followed book "This unit's reading: <range>" with the unit-teacher addition (teacher only) and the detail.
+- A book that can't be read: "This session's book, "<title>", can't be read right now (<reason>). Teach without it; if the learner asks about it, say so."
+- The tools' limits: `read_section` ends a long read with "Continues: call read_section with at "blocks 341–512"" (block numbers become a location form); `book_map` over its cap says "Too large to show in full. Narrow to one of: …"; `search_book` says "57 matches; showing the first 20. Add words to narrow it." or "No matches for "…".".
+- The doctrine's second paragraph (quoting through `quote_passage`) joins the prompt in item 5, with the tool.
+
 ## Feature designs
 
 ### Courses, units, and notes
@@ -274,7 +291,7 @@ Fix all six review findings within item 3: the in-use check skipping records it 
 
 ### Books
 
-**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs; item 2 (the map writer and the optional contents pass) and item 3 (library and book pages) are implemented, both including review repairs. Checkpoint 1, the human's approval of the look of items 1–3, comes before item 4; items 4–8 remain. Built right after course phase 1 (see build order below).
+**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs; item 2 (the map writer and the optional contents pass) and item 3 (library and book pages) are implemented, both including review repairs. Checkpoint 1 (the look of items 1–3) was approved on 2026-11-14. Item 4 (attaching a book, the book in prompts, the retrieval tools) is implemented; its browser check is still owed (see plan 05). Items 5–8 remain, with checkpoint 2 after item 5. Built right after course phase 1 (see build order below).
 
 **Problem (human):** to study a specific text (e.g. Hegel's *Phenomenology of Spirit*), the learner wants to add the book. The whole book should never sit in context, but it should be reachable when needed.
 
@@ -366,7 +383,6 @@ Checks only the human can do, such as clicking native dialogs or menus. Remove a
   - Run a real course setup on your own provider: start from "Course", answer the setup probe, edit the proposed units in the card, and create the course. Then work through unit 1's probe, plan and checks until the teacher marks the goal reached.
   - Complete that unit and read its handoff: the overview's "Handoff" disclosure on the completed unit. Check that the computed solid and shaky lines match your answers, and that the teacher observations (written by your Strong model) are fair.
   - Open the course's `progress.md` outside the app, at `<data folder>/courses/<courseId>/progress.md` (the repo's `data/` in dev unless `LH_DATA_DIR` is set). It should read as the course's current state.
-- *Step 5, books checkpoint 1* ([plan 05](plans/05-books.md#item-3-2026-11-14)): approve the look of the library, "Check the contents" and its alternatives, the garbled refusal, the book page and reader, an app-made book, and the delete refusal (screenshots in light and dark from the item-3 report), and the agent-selected choices listed there, before item 4 starts.
 
 ## Open questions
 

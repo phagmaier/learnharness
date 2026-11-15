@@ -13,6 +13,7 @@ import type { LhMessage } from "./native-messages.ts";
 import type { PluginAgentRecord } from "./plugin-agents.ts";
 import type { PluginTaskRecord } from "./plugin-workers.ts";
 import type {
+	ChatBookLink,
 	ChatCourseLink,
 	ChatRecord,
 	ImageSnapshot,
@@ -57,7 +58,7 @@ export interface ChatStore {
 	/** Create a session record (persisted immediately). */
 	/** Create a session record; kind "practice" marks a practice session
 	 *  (absent = teach, the default). */
-	createChat(title: string, kind?: "practice", course?: ChatCourseLink): ChatRecord;
+	createChat(title: string, kind?: "practice", course?: ChatCourseLink, book?: ChatBookLink): ChatRecord;
 	/** The full record, or null if unknown id / corrupt file. */
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */

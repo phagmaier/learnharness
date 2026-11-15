@@ -12,10 +12,12 @@ import {
 	proposalView,
 	unitDraftsFromRows,
 	type CourseRecord,
+	type SessionBookView,
 	type CourseUnit,
 	type UnitDraftRow,
 } from "@/src/core";
 import { TopBar } from "@/components/top-bar";
+import { BookChip } from "@/components/book-chip";
 import { UnitListEditor } from "@/components/course-unit-editor";
 import { Button } from "@/components/ui/button";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -138,7 +140,11 @@ export function UnitCard({
 }
 
 /** The stateful page: live record, rename, start, and the editor. */
-export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord }) {
+export function CourseOverview({ initialCourse, book }: {
+	initialCourse: CourseRecord;
+	/** Fork plan 05: the course's book chip (fixed when the course starts). */
+	book?: SessionBookView;
+}) {
 	const router = useRouter();
 	const [course, setCourse] = useState(initialCourse);
 	const [error, setError] = useState<string | null>(null);
@@ -306,6 +312,7 @@ export function CourseOverview({ initialCourse }: { initialCourse: CourseRecord 
 					)}
 					<span data-testid="course-progress" className="truncate font-ui text-[10px] uppercase tracking-wide text-muted-foreground sm:shrink-0 sm:text-xs">{courseProgressLine(course.units)}</span>
 					</div>
+					{book && <BookChip book={book} />}
 					<CourseTabs courseId={courseId} active="overview" />
 				</TopBar>
 				<div className="min-h-0 flex-1 overflow-y-auto">

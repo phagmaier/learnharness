@@ -3,16 +3,18 @@
 import type { ReactNode, Ref } from "react";
 import { DumbbellIcon, GraduationCapIcon } from "lucide-react";
 
-/** Home and the draft share one wrapping action row. Picker controls lead;
- * setup is centered only when it is the sole action. */
-export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?: ReactNode }) {
-	if (!picker && !setup) return null;
+/** Home and the draft share one wrapping action row. Picker controls lead,
+ * then the Book control (fork plan 05); setup is centered only when it is
+ * the sole action. */
+export function ComposerActions({ picker, book, setup }: { picker?: ReactNode; book?: ReactNode; setup?: ReactNode }) {
+	if (!picker && !book && !setup) return null;
 	return (
 		<div
 			data-testid="composer-actions"
-			className={`pointer-events-auto mb-2 flex flex-wrap items-center gap-2 ${picker ? "justify-start" : "justify-center"}`}
+			className={`pointer-events-auto mb-2 flex flex-wrap items-center gap-2 ${picker || book ? "justify-start" : "justify-center"}`}
 		>
 			{picker}
+			{book}
 			{setup}
 		</div>
 	);
