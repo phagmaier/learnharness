@@ -63,12 +63,25 @@ function writeChat(record: ChatRecord): void {
 }
 
 function getChat(id: string): ChatRecord | null {
-	let parsed: unknown;
+	let text: string;
 	try {
-		parsed = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ chatFile(id), "utf-8"));
+		text = fs.readFileSync(/* turbopackIgnore: true */ chatFile(id), "utf-8");
 	} catch {
 		return null;
 	}
+	return parseChat(id, text);
+}
+
+/** A record file's text as a record, or null when it's damaged or stamped
+ *  newer than this build. */
+function parseChat(id: string, text: string): ChatRecord | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		return null;
+	}
+	if (typeof parsed !== "object" || parsed === null) return null;
 	// Honest refusal (owner ruling 2026-10-10): a record stamped NEWER than
 	// this build (the downgrade scenario) reads as absent, never misparsed —
 	// the next read-modify-write must not rewrite what it doesn't understand.
@@ -78,6 +91,40 @@ function getChat(id: string): ChatRecord | null {
 		return null;
 	}
 	return parsed as ChatRecord;
+}
+
+/** Fork plan 05 (who uses a book): every chat whose file contains `text`,
+ *  as the records that read, plus the ids of the files that don't (damaged
+ *  or saved by a newer build). Unlike listChats, a folder or file that
+ *  can't be opened throws: a caller deciding that nothing uses something
+ *  must not mistake an unopened file for an absent reference. */
+function chatsMentioning(text: string): { chats: ChatRecord[]; unreadable: string[] } {
+	let names: string[];
+	try {
+		names = fs.readdirSync(/* turbopackIgnore: true */ PATHS.chats);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return { chats: [], unreadable: [] };
+		throw error;
+	}
+	const chats: ChatRecord[] = [];
+	const unreadable: string[] = [];
+	for (const name of names) {
+		const id = name.slice(0, -".json".length);
+		// The names getChat can open (listChats skips the rest the same way).
+		if (!name.endsWith(".json") || !/^[A-Za-z0-9_-]+$/.test(id)) continue;
+		let raw: string;
+		try {
+			raw = fs.readFileSync(/* turbopackIgnore: true */ chatFile(id), "utf-8");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // deleted meanwhile
+			throw error;
+		}
+		if (!raw.includes(text)) continue;
+		const record = parseChat(id, raw);
+		if (record) chats.push(record);
+		else unreadable.push(id);
+	}
+	return { chats, unreadable };
 }
 
 function listChats(): ChatSummary[] {
@@ -259,6 +306,7 @@ export const chatStore: ChatStore = {
 	createChat,
 	getChat,
 	listChats,
+	chatsMentioning,
 	saveMessages,
 	saveImageSnapshot,
 	saveTree,

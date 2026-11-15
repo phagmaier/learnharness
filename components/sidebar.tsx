@@ -7,7 +7,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import { DeleteCourseDialog } from "@/components/delete-course-dialog";
 import type { ChatDeleteMode, ThemeMode } from "@/src/core";
-import { ChevronRightIcon, DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { BookIcon, ChevronRightIcon, DumbbellIcon, GraduationCapIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -963,6 +963,18 @@ function SessionsSidebar() {
 						<span className="min-w-0 truncate">Course</span>
 						<span className="sr-only">start a new course</span>
 					</button>
+					{/* The Books library (fork plan 05 item 3). */}
+					<Link
+						href="/books"
+						data-testid="open-books"
+						title="Books"
+						aria-current={pathname === "/books" || pathname?.startsWith("/books/") ? "page" : undefined}
+						className="flex min-w-0 w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-[current=page]:text-foreground"
+					>
+						<BookIcon className="size-3 shrink-0" />
+						<span className="min-w-0 truncate">Books</span>
+						<span className="sr-only">open the books library</span>
+					</Link>
 				</PluginSidebarActions>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">

@@ -216,6 +216,14 @@ The optional model contents pass uses the agent's drafted prompt as written (`BO
 
 *Agent-selected implementation:* request sizing counts the complete provider-facing prompt and tool schema and reserves room for the submitted answer. Contents estimates and execution share the same prepared digest. Candidate comparison excludes summaries and terms, so accepting unchanged contents keeps the existing map work. Stop state belongs to the writer run, while the server's abort id stays unchanged.
 
+### Books item 3 review repairs — 2026-11-14, human
+
+Fix all six review findings within item 3: the in-use check skipping records it can't read, a replacement model candidate the review couldn't offer, late jump responses replacing newer navigation, jump windows that could leave out their target, the open delete dialog discarding refreshes, and a failed read of the contents leaving the review without recovery. No dependency or storage-format changes; leave the work uncommitted.
+
+*Human, unreadable records:* a session or course record that can't be read (damaged, or saved by a newer version of the app) counts as using a book when its file contains the book's id. It blocks deletion and contents changes, and "Used by" and the refusal list it without a link as "a course that can't be read (<id>)" or "a session that can't be read (<id>)". Unreadable records that don't mention the book block nothing. A record or folder that can't be opened at all fails closed with the existing retryable error.
+
+*Agent-selected implementation:* the chat and course stores gain a scan of the files that contain a given text (`chatsMentioning`, `mentioning`), which reports unreadable matches and throws when a file can't be opened. A listed unreadable course covers the sessions that name it, as a readable course does. The review shows the book's current map as the found contents (exactly what "Looks right" accepts) and offers every candidate whose contents differ from it, using the server's comparison (`sameBookContents`, now in core). A failed read of the candidates shows its reason with "Try again", and a reconnect reads them again. Jumps and search matches use `around`/`at` windows that keep up to 4 blocks above the target, fewer when those would use up the window. Refreshes are held off only during the delete request, and a refused or failed delete refreshes. Details: [plan 05, item 3 review repairs](plans/05-books.md#item-3-review-repairs-2026-11-14).
+
 ## Feature designs
 
 ### Courses, units, and notes
@@ -266,7 +274,7 @@ The optional model contents pass uses the agent's drafted prompt as written (`BO
 
 ### Books
 
-**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs, and item 2 (the map writer and the optional contents pass) is implemented; items 3–8 remain. Built right after course phase 1 (see build order below).
+**Status:** designed 2026-11-12. Planned and approved 2026-11-14 ([plan 05](plans/05-books.md)), including its Proposed items. Item 1 (record, store and model-free import) is implemented, including review repairs; item 2 (the map writer and the optional contents pass) and item 3 (library and book pages) are implemented, both including review repairs. Checkpoint 1, the human's approval of the look of items 1–3, comes before item 4; items 4–8 remain. Built right after course phase 1 (see build order below).
 
 **Problem (human):** to study a specific text (e.g. Hegel's *Phenomenology of Spirit*), the learner wants to add the book. The whole book should never sit in context, but it should be reachable when needed.
 
@@ -358,6 +366,7 @@ Checks only the human can do, such as clicking native dialogs or menus. Remove a
   - Run a real course setup on your own provider: start from "Course", answer the setup probe, edit the proposed units in the card, and create the course. Then work through unit 1's probe, plan and checks until the teacher marks the goal reached.
   - Complete that unit and read its handoff: the overview's "Handoff" disclosure on the completed unit. Check that the computed solid and shaky lines match your answers, and that the teacher observations (written by your Strong model) are fair.
   - Open the course's `progress.md` outside the app, at `<data folder>/courses/<courseId>/progress.md` (the repo's `data/` in dev unless `LH_DATA_DIR` is set). It should read as the course's current state.
+- *Step 5, books checkpoint 1* ([plan 05](plans/05-books.md#item-3-2026-11-14)): approve the look of the library, "Check the contents" and its alternatives, the garbled refusal, the book page and reader, an app-made book, and the delete refusal (screenshots in light and dark from the item-3 report), and the agent-selected choices listed there, before item 4 starts.
 
 ## Open questions
 

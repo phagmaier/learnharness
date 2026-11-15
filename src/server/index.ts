@@ -13,6 +13,7 @@ export * from "./courses.ts";
 export * from "./handoffs.ts";
 export * from "./books.ts";
 export { abortBookWriterActivity, type BookWriterActivity, type BookWriterKind } from "./book-maps.ts";
+export { bookTextWindowOf, searchBook, BOOK_SEARCH_LIMIT, type BookTextWindow } from "./book-reading.ts";
 export * from "./graph.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";

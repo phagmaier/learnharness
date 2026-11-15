@@ -396,6 +396,21 @@ describe("when the map writer runs", () => {
 		assert.ok(nodes.every((node) => node.kind === "app-part" && node.title === `Title of ${node.id}` && node.summary === `Summary of ${node.id}`));
 	});
 
+	it("is stopped when the book is deleted (item 3), and writes nothing after", async () => {
+		const { engine, requests } = scripted([untilStopped]);
+		useEngine(engine);
+		const record = await upload("Doomed.md", LONG_HEADINGS);
+		assert.equal((await contentsRoute.PUT(put({}), params(record.id))).status, 200);
+		await until(() => requests.length === 1, "the first call");
+		assert.equal(activityFeed().bookWriters.length, 1);
+		const deleted = await bookRoute.DELETE(new Request("http://x", { method: "DELETE" }), params(record.id));
+		assert.equal(deleted.status, 200);
+		assert.equal(maps.isBookWriterRunning(record.id, "map"), false);
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		assert.deepEqual(activityFeed().bookWriters, []);
+		assert.equal(fs.existsSync(path.join(TMP, "books", record.id)), false, "the stopped writer never recreated the folder");
+	});
+
 	it("without a Cheap model, imports and fails the writer at once; Try again works once a model is set", async () => {
 		settingsStore.writeSettings({ version: 1, models: { strong: SETTINGS.models.strong } } as never);
 		const { engine } = scripted(mappers(4));

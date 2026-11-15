@@ -8,8 +8,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	BOOK_WINDOW_BLOCKS,
+	BOOK_WINDOW_CHARS,
 	bookDetailText,
 	bookOutlineText,
+	bookTextWindow,
+	nodeAtBlock,
+	pageAtOffset,
+	searchableBlocks,
+	searchBookBlocks,
 	chooseCandidate,
 	findNumberedRun,
 	normalizeBookText,
@@ -403,5 +410,65 @@ describe("outline and detail texts", () => {
 		assert.equal(rangeText(nodes, { from: "n17", to: "n31" }), "§16–§30 (Self-consciousness)");
 		assert.equal(rangeText(nodes, { from: "n5", to: "n5" }), "§5 (Consciousness)");
 		assert.equal(rangeText(nodes, { from: "n5", to: "n20" }), "§5–§19");
+	});
+});
+
+describe("reader windows and search", () => {
+	const sized = (count: number, length: number): BookBlock[] => Array.from({ length: count }, (_, id) => ({ id, kind: "paragraph", text: "x".repeat(length) }));
+
+	it("ends a window at the block cap or once the character budget is reached", () => {
+		assert.equal(BOOK_WINDOW_BLOCKS, 120);
+		assert.equal(BOOK_WINDOW_CHARS, 60_000);
+		assert.deepEqual(bookTextWindow(sized(500, 10), { from: 0 }), { from: 0, to: 119 });
+		// 1,000 characters each: the 60th block reaches 60,000.
+		assert.deepEqual(bookTextWindow(sized(500, 1_000), { from: 10 }), { from: 10, to: 69 });
+		assert.deepEqual(bookTextWindow(sized(500, 1_000), { before: 100 }), { from: 40, to: 99 });
+		assert.deepEqual(bookTextWindow(sized(500, 10), { before: 100 }), { from: 0, to: 99 });
+		// One block over the budget still comes whole.
+		assert.deepEqual(bookTextWindow(sized(3, 100_000), { from: 1 }), { from: 1, to: 1 });
+		assert.deepEqual(bookTextWindow(sized(3, 10), { before: 0 }), { from: 0, to: -1 });
+		assert.deepEqual(bookTextWindow(sized(10, 10), { around: 2 }), { from: 0, to: 9 });
+		assert.deepEqual(bookTextWindow(sized(10, 10), { around: 50 }), { from: 5, to: 9 });
+	});
+
+	it("always holds a jump's target, shortening the lead above it when blocks are long", () => {
+		// 20,000 characters each: two lead blocks leave the target the last 20,000.
+		assert.deepEqual(bookTextWindow(sized(12, 20_000), { around: 8 }), { from: 6, to: 8 });
+		// A lead block alone would use up the budget, so the target starts the window.
+		assert.deepEqual(bookTextWindow(sized(12, 60_000), { around: 8 }), { from: 8, to: 8 });
+		assert.deepEqual(bookTextWindow(sized(12, 15_000), { around: 8 }), { from: 5, to: 8 });
+		assert.deepEqual(bookTextWindow(sized(12, 10_000), { around: 8 }), { from: 4, to: 9 });
+		assert.deepEqual(bookTextWindow(sized(12, 10_000), { around: 2 }), { from: 0, to: 5 });
+		assert.deepEqual(bookTextWindow([], { around: 3 }), { from: 0, to: -1 });
+	});
+
+	it("finds the deepest section at a block and the page at an offset", () => {
+		const book = paragraphBook();
+		const nodes = structureCandidates({ format: "text", blocks: book })[0]!.nodes;
+		assert.equal(nodeAtBlock(nodes, 0)!.label, "A");
+		assert.equal(nodeAtBlock(nodes, 3)!.label, "§3");
+		assert.equal(nodeAtBlock(nodes, 17)!.label, "§16");
+		const block: BookBlock = { id: 0, kind: "paragraph", text: "one two three", page: 4, pageLabel: "x", breaks: [{ at: 4, page: 5 }, { at: 8, page: 6, pageLabel: "xii" }] };
+		assert.deepEqual([0, 3, 4, 7, 8, 12].map((offset) => pageAtOffset(block, offset)), ["x", "x", "5", "5", "xii", "xii"]);
+	});
+
+	it("maps matches back through ligatures and counts past the limit", () => {
+		const book = blocks([{ heading: "The ﬁrst" }, { text: "A ﬁrst, a first and a FIRST.", page: 9 }]);
+		const nodes: BookNode[] = [{ id: "n0", label: "I", title: "The ﬁrst", kind: "chapter", level: 1, firstBlock: 0, lastBlock: 1 }];
+		const result = searchBookBlocks(book, searchableBlocks(book), nodes, "first", 3);
+		assert.equal(result.total, 4);
+		assert.deepEqual(result.hits.map((hit) => [hit.block, hit.start, hit.end, hit.match]), [[0, 4, 8, "ﬁrst"], [1, 2, 6, "ﬁrst"], [1, 10, 15, "first"]]);
+		assert.equal(result.hits[1]!.page, "9");
+		assert.deepEqual([result.hits[1]!.nodeId, result.hits[1]!.label], ["n0", "I"]);
+	});
+
+	it("cuts long snippets at spaces with ellipses", () => {
+		const text = `${"alpha ".repeat(30)}needle${" omega".repeat(30)}`;
+		const book: BookBlock[] = [{ id: 0, kind: "paragraph", text }];
+		const [hit] = searchBookBlocks(book, searchableBlocks(book), [], "needle").hits;
+		assert.ok(hit!.before.startsWith("…alpha "), hit!.before);
+		assert.ok(hit!.after.endsWith(" omega…"), hit!.after);
+		assert.ok(hit!.before.length <= 82 && hit!.after.length <= 82);
+		assert.equal(hit!.match, "needle");
 	});
 });

@@ -62,6 +62,10 @@ export interface ChatStore {
 	getChat(id: string): ChatRecord | null;
 	/** All sessions, newest activity first (the sidebar's list view). */
 	listChats(): ChatSummary[];
+	/** Every session whose file contains `text`: the records that read,
+	 *  plus the ids of files that don't (damaged or saved by a newer
+	 *  build). Throws when the folder or a file can't be opened. */
+	chatsMentioning(text: string): { chats: ChatRecord[]; unreadable: string[] };
 	/** Persist the full native message list (the record IS the agent
 	 * state — Wave B, owner-approved 2026-09-26). */
 	saveMessages(id: string, messages: LhMessage[]): void;

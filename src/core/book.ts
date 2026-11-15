@@ -908,3 +908,188 @@ export function rangeText(nodes: readonly BookNode[], range: BookRange): string 
 	const name = shared && shared.title !== label ? shared.title.replace(new RegExp(`^${shared.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.?\\s*`), "") : "";
 	return name && name !== label ? `${label} (${name})` : label;
 }
+
+/** Whether two maps hold the same contents. Summaries and key terms are
+ *  not contents: accepting an unchanged candidate keeps those already
+ *  written. A new model pass can change the contents without changing the
+ *  method, so callers compare contents, never only methods. */
+export function sameBookContents(a: readonly BookNode[], b: readonly BookNode[]): boolean {
+	return a.length === b.length && a.every((node, i) => {
+		const other = b[i]!;
+		return node.id === other.id && node.parentId === other.parentId
+			&& node.label === other.label && node.title === other.title
+			&& node.kind === other.kind && node.level === other.level
+			&& node.firstBlock === other.firstBlock && node.lastBlock === other.lastBlock
+			&& node.pages?.from === other.pages?.from && node.pages?.to === other.pages?.to;
+	});
+}
+
+// ─── reading and search (item 3) ───────────────────────────────────────────
+
+/** The deepest node whose text holds a block (the map is in preorder, so
+ *  the last match is the deepest). */
+export function nodeAtBlock(nodes: readonly BookNode[], block: number): BookNode | undefined {
+	let found: BookNode | undefined;
+	for (const node of nodes) {
+		if (node.firstBlock > block) break;
+		if (node.lastBlock >= block) found = node;
+	}
+	return found;
+}
+
+/** The page (its printed label when it has one) at an offset in a block. */
+export function pageAtOffset(block: BookBlock, offset: number): string | undefined {
+	let page = block.pageLabel ?? (block.page !== undefined ? String(block.page) : undefined);
+	for (const brk of block.breaks ?? []) {
+		if (brk.at > offset) break;
+		page = brk.pageLabel ?? String(brk.page);
+	}
+	return page;
+}
+
+/** How many blocks a reader window holds at most, and roughly how much text. */
+export const BOOK_WINDOW_BLOCKS = 120;
+export const BOOK_WINDOW_CHARS = 60_000;
+/** Blocks shown above a jump target at most, so it isn't flush with the top. */
+export const BOOK_WINDOW_LEAD = 4;
+
+export type BookWindowRequest = { from: number } | { before: number } | { around: number };
+
+/**
+ * A window of blocks for the reader, as inclusive indexes (`to < from` when
+ * empty): forward from a block, backward from just before one, or around a
+ * jump target. A window ends at BOOK_WINDOW_BLOCKS blocks or once
+ * BOOK_WINDOW_CHARS characters are reached, and always holds at least one
+ * block when any is in range.
+ *
+ * Around a target, the window starts up to BOOK_WINDOW_LEAD blocks above it,
+ * fewer when those blocks would use up the character budget: the target is
+ * always in the window.
+ */
+export function bookTextWindow(blocks: readonly BookBlock[], request: BookWindowRequest): { from: number; to: number } {
+	const total = blocks.length;
+	const forward = (start: number) => {
+		const from = Math.max(0, start);
+		let to = from - 1;
+		let chars = 0;
+		while (to + 1 < total && to + 1 - from < BOOK_WINDOW_BLOCKS && (to < from || chars < BOOK_WINDOW_CHARS)) {
+			to++;
+			chars += blocks[to]!.text.length;
+		}
+		return { from, to };
+	};
+	if ("from" in request) return forward(request.from);
+	if ("around" in request) {
+		const target = Math.min(Math.max(0, request.around), Math.max(0, total - 1));
+		// The lead stays under the budget, so forward() still reaches the target.
+		let start = target;
+		let lead = 0;
+		while (start > 0 && target - start < BOOK_WINDOW_LEAD && lead + blocks[start - 1]!.text.length < BOOK_WINDOW_CHARS) {
+			start--;
+			lead += blocks[start]!.text.length;
+		}
+		return forward(start);
+	}
+	const to = Math.min(request.before, total) - 1;
+	let from = to + 1;
+	let chars = 0;
+	while (from - 1 >= 0 && to - (from - 1) < BOOK_WINDOW_BLOCKS && (from > to || chars < BOOK_WINDOW_CHARS)) {
+		from--;
+		chars += blocks[from]!.text.length;
+	}
+	return { from, to };
+}
+
+export interface BookSearchHit {
+	block: number;
+	/** The deepest section holding the match. */
+	nodeId?: string;
+	label?: string;
+	/** The page at the match (its printed label when it has one). */
+	page?: string;
+	/** The match in the block's stored text, as UTF-16 offsets. */
+	start: number;
+	end: number;
+	/** The stored text around the match, cut at spaces, with "…" where cut. */
+	before: string;
+	match: string;
+	after: string;
+}
+
+export interface BookSearchResult {
+	hits: BookSearchHit[];
+	/** Every match in the book, also those past the limit. */
+	total: number;
+}
+
+const SNIPPET_CHARS = 80;
+
+/** The search form of every block, computed once per book and cached by
+ *  the caller (the plan's performance check: per-query normalization of a
+ *  600-page book costs about 100× more). */
+export function searchableBlocks(blocks: readonly BookBlock[]): string[] {
+	return blocks.map((block) => normalizeBookText(block.text, { search: true }).text);
+}
+
+/** Map a match in a block's search form back to its stored text. */
+function storedSpan(text: string, at: number, length: number): { start: number; end: number } {
+	const { map } = normalizeBookText(text, { search: true });
+	const start = map[at] ?? 0;
+	let end = (map[at + length - 1] ?? start) + 1;
+	// A surrogate pair, or combining marks search dropped, belong to the match.
+	if (end < text.length && /[\uDC00-\uDFFF]/.test(text[end]!)) end++;
+	while (end < text.length && /\p{M}/u.test(text[end]!)) end++;
+	return { start, end };
+}
+
+function snippet(text: string, start: number, end: number): Pick<BookSearchHit, "before" | "match" | "after"> {
+	let from = Math.max(0, start - SNIPPET_CHARS);
+	if (from > 0) { const space = text.indexOf(" ", from); from = space >= 0 && space < start ? space + 1 : from; }
+	let to = Math.min(text.length, end + SNIPPET_CHARS);
+	if (to < text.length) { const space = text.lastIndexOf(" ", to); to = space > end ? space : to; }
+	return {
+		before: `${from > 0 ? "…" : ""}${text.slice(from, start)}`,
+		match: text.slice(start, end),
+		after: `${text.slice(end, to)}${to < text.length ? "…" : ""}`,
+	};
+}
+
+/**
+ * Search a book: case- and accent-insensitive, typographic marks folded
+ * (normalizeBookText), the query matched as one phrase within a block. Hits
+ * come in book order, up to `limit`; `total` counts them all.
+ */
+export function searchBookBlocks(
+	blocks: readonly BookBlock[],
+	searchable: readonly string[],
+	nodes: readonly BookNode[],
+	query: string,
+	limit = 100,
+): BookSearchResult {
+	const wanted = normalizeBookText(query, { search: true }).text;
+	const hits: BookSearchHit[] = [];
+	let total = 0;
+	if (!wanted) return { hits, total };
+	for (let index = 0; index < searchable.length; index++) {
+		const haystack = searchable[index]!;
+		let at = haystack.indexOf(wanted);
+		while (at >= 0) {
+			total++;
+			if (hits.length < limit) {
+				const block = blocks[index]!;
+				const span = storedSpan(block.text, at, wanted.length);
+				const node = nodeAtBlock(nodes, block.id);
+				const page = pageAtOffset(block, span.start);
+				hits.push({
+					block: block.id,
+					...(node ? { nodeId: node.id, label: node.label } : {}),
+					...(page !== undefined ? { page } : {}),
+					...span,
+					...snippet(block.text, span.start, span.end),
+				});
+			}
+			at = haystack.indexOf(wanted, at + wanted.length);
+		}
+	}
+	return { hits, total };
+}

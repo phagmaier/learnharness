@@ -111,6 +111,12 @@ function get(courseId: string): CourseRecord | null {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
 		throw error;
 	}
+	return parse(courseId, text);
+}
+
+/** A record file's text as a record; throws CourseUnreadableError for a
+ *  damaged or newer one. */
+function parse(courseId: string, text: string): CourseRecord {
 	let parsed: CourseRecord;
 	try {
 		parsed = JSON.parse(text) as CourseRecord;
@@ -174,6 +180,43 @@ function list(): { courses: CourseRecord[]; unreadable: string[] } {
 	return { courses, unreadable };
 }
 
+/** Fork plan 05 (who uses a book): the courses whose record contains
+ *  `text`, oldest first, plus the ids of those whose record contains it but
+ *  can't be read. Unlike list, a folder or record that can't be opened
+ *  throws: a caller deciding that nothing uses something must not mistake
+ *  an unopened record for an absent reference. */
+function mentioning(text: string): { courses: CourseRecord[]; unreadable: string[] } {
+	let names: string[];
+	try {
+		names = fs.readdirSync(/* turbopackIgnore: true */ PATHS.courses);
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return { courses: [], unreadable: [] };
+		throw error;
+	}
+	const courses: CourseRecord[] = [];
+	const unreadable: string[] = [];
+	for (const name of names.filter((entry) => SAFE_ID.test(entry)).sort()) {
+		let raw: string;
+		try {
+			raw = fs.readFileSync(/* turbopackIgnore: true */ recordFile(name), "utf-8");
+		} catch (error) {
+			// No record there (a stray file, or a folder without one), as get().
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code === "ENOENT" || code === "ENOTDIR") continue;
+			throw error;
+		}
+		if (!raw.includes(text)) continue;
+		try {
+			courses.push(parse(name, raw));
+		} catch (error) {
+			if (!(error instanceof CourseUnreadableError)) throw error;
+			unreadable.push(name);
+		}
+	}
+	courses.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	return { courses, unreadable };
+}
+
 /** Read-modify-write: `change` gets the stored record (unknown fields
  *  included) and returns the next one; updatedAt is stamped here unless
  *  `touch` is false (evidence bookkeeping, which must not make an open
@@ -207,5 +250,5 @@ function remove(courseId: string): boolean {
 	return true;
 }
 
-export const courseStore = { create, get, list, update, remove };
+export const courseStore = { create, get, list, mentioning, update, remove };
 export type CourseStore = typeof courseStore;
